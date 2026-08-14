@@ -28,6 +28,34 @@ jobs:
           python examples/02_two_approvers_and_a_deadlock.py > /dev/null
           python examples/03_scheduled_worker.py > /dev/null
 
+  postgres-contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: abeyance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d abeyance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ABEYANCE_TEST_POSTGRES: postgresql://postgres:postgres@localhost:5432/abeyance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with Postgres adapter
+        run: pip install -e ".[dev,postgres]"
+      - name: Real Postgres contract
+        run: python -m pytest -q tests/test_stores.py tests/test_claims.py
+
   zero-dependency-core:
     # The core is a state machine and a parser. It has to install and import inside somebody
     # else's container without dragging in a mail SDK — this is the check that keeps it honest.
