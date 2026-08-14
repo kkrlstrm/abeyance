@@ -19,9 +19,10 @@ the expiry and the escalation then live on their own. A separate worker — anot
 another process, possibly a plain cron line with no agent in it — later applies only what
 settled.
 
-Two limits, stated up front rather than discovered: run ONE apply worker at a time (see
-`docs/ARCHITECTURE.md` on concurrency), and treat sender attribution as an operational
-control, not authentication.
+Competing apply workers can use `execute_claimed()` with a claim-capable shared store. Claims
+close the live-worker race; they do not make an external side effect exactly-once if a worker
+dies after performing it but before proposal state is saved. Treat sender attribution as an
+operational control, not authentication.
 
 Quickstart:
 
@@ -45,6 +46,7 @@ Quickstart:
 """
 from __future__ import annotations
 
+from .claims import ClaimedExecution, execute_claimed
 from .cursor import Cursor, CursorRun, DueGate, DueVerdict, TriggerResult
 from .errors import (AlreadyExecuted, ConfigurationError, CursorNotCommittable, AbeyanceError,
                      NoApproversError, PolicyError, ProposalNotFound, TransportError,
@@ -64,6 +66,7 @@ __all__ = [
     "__version__",
     # loop
     "ApprovalLoop", "Executor", "InboundReply", "PollResult", "ProposeResult", "NudgeResult",
+    "execute_claimed", "ClaimedExecution",
     # models
     "Item", "Approver", "Proposal", "Reply", "Sent", "Status", "Verdict",
     "ItemOutcome", "ExecutionReport", "Escalation", "EscalationEvent",
