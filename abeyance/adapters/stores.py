@@ -33,6 +33,7 @@ class MemoryStore:
 
     def __init__(self) -> None:
         self._d: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._claims: Dict[tuple[str, str], Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
     def get(self, kind: str, key: str) -> Optional[Dict[str, Any]]:
@@ -52,6 +53,31 @@ class MemoryStore:
         with self._lock:
             self._d.get(kind, {}).pop(key, None)
 
+    def claim(self, kind: str, key: str, owner: str, *, now: int,
+              lease_seconds: int = 300) -> bool:
+        """Atomically acquire or renew an execution lease for one document."""
+        if not owner:
+            raise ValueError("claim owner must be non-empty")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        claim_key = (kind, key)
+        with self._lock:
+            current = self._claims.get(claim_key)
+            if current and current["owner"] != owner and current["expires_at"] > now:
+                return False
+            self._claims[claim_key] = {"owner": owner, "expires_at": now + lease_seconds}
+            return True
+
+    def release_claim(self, kind: str, key: str, owner: str) -> bool:
+        """Release only the caller's own lease; a stale worker cannot release another's."""
+        claim_key = (kind, key)
+        with self._lock:
+            current = self._claims.get(claim_key)
+            if not current or current["owner"] != owner:
+                return False
+            del self._claims[claim_key]
+            return True
+
 
 class JSONFileStore:
     """One JSON file per document under `root/<kind>/<key>.json`.
@@ -59,6 +85,9 @@ class JSONFileStore:
     Writes are atomic (temp file plus rename) because the alternative — a half-written
     proposal after a crash mid-write — loses the approvals already recorded in it, and those
     are the one thing in the system that cannot be regenerated.
+
+    This store intentionally does not implement distributed execution claims. It is a
+    single-machine store; use PostgresStore when multiple workers can compete.
     """
 
     def __init__(self, root: os.PathLike | str) -> None:
@@ -116,6 +145,11 @@ class PostgresStore:
     that will one day not start. Every write stamps `updated_by` with the host or container id,
     so "which machine last touched this" is answerable — the provenance a filesystem layout
     used to imply by location and a shared table has to record explicitly.
+
+    A sibling claims table provides atomic, expiring execution leases. Claims prevent two live
+    workers from entering the same execution window concurrently; they do not make an external
+    side effect exactly-once if a worker crashes after the side effect but before proposal state
+    is saved. Executors should still be idempotent for that failure boundary.
     """
 
     def __init__(self, dsn: str, *, schema: str = "abeyance", table: str = "state",
@@ -129,6 +163,10 @@ class PostgresStore:
     @property
     def _qualified(self) -> str:
         return f"{self.schema}.{self.table}"
+
+    @property
+    def _claims_qualified(self) -> str:
+        return f"{self.schema}.{self.table}_claims"
 
     def _host(self) -> str:
         app, mach = os.environ.get("FLY_APP_NAME"), os.environ.get("FLY_MACHINE_ID")
@@ -153,6 +191,15 @@ class PostgresStore:
                 doc        jsonb       NOT NULL,
                 updated_at timestamptz NOT NULL DEFAULT now(),
                 updated_by text,
+                PRIMARY KEY (kind, key)
+            )""")
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self._claims_qualified} (
+                kind       text        NOT NULL,
+                key        text        NOT NULL,
+                owner      text        NOT NULL,
+                expires_at timestamptz NOT NULL,
+                claimed_at timestamptz NOT NULL DEFAULT now(),
                 PRIMARY KEY (kind, key)
             )""")
         self._ensured = True
@@ -188,6 +235,41 @@ class PostgresStore:
 
     def delete(self, kind: str, key: str) -> None:
         self._run(f"DELETE FROM {self._qualified} WHERE kind=%s AND key=%s", (kind, key))
+
+    def claim(self, kind: str, key: str, owner: str, *, now: int,
+              lease_seconds: int = 300) -> bool:
+        """Atomically acquire/renew an execution lease using one UPSERT.
+
+        A competing owner can take the lease only after it has expired. The database clock is
+        deliberately used for the comparison and expiry interval so workers with skewed clocks
+        cannot steal a live lease from one another; `now` is accepted for Store parity/tests.
+        """
+        del now
+        if not owner:
+            raise ValueError("claim owner must be non-empty")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        rows = self._run(
+            f"""INSERT INTO {self._claims_qualified}
+                    (kind, key, owner, expires_at, claimed_at)
+                VALUES (%s, %s, %s, now() + (%s * interval '1 second'), now())
+                ON CONFLICT (kind, key) DO UPDATE
+                    SET owner = EXCLUDED.owner,
+                        expires_at = EXCLUDED.expires_at,
+                        claimed_at = now()
+                WHERE {self._claims_qualified}.expires_at <= now()
+                   OR {self._claims_qualified}.owner = EXCLUDED.owner
+                RETURNING owner""",
+            (kind, key, owner, int(lease_seconds)), fetch=True) or []
+        return bool(rows)
+
+    def release_claim(self, kind: str, key: str, owner: str) -> bool:
+        rows = self._run(
+            f"""DELETE FROM {self._claims_qualified}
+                WHERE kind=%s AND key=%s AND owner=%s
+                RETURNING owner""",
+            (kind, key, owner), fetch=True) or []
+        return bool(rows)
 
 
 # --------------------------------------------------------------------------- helpers
