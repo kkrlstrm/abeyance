@@ -333,8 +333,16 @@ Every segment figure is real, verified independently against the same database.
 ```
 
 Result: `IGNORED: ['...::campaign-design']`. This is the sharpest moment in the whole exercise —
-a model produced genuinely good work, grounded in real reply rates, *and* attempted to ride the
+a worker produced genuinely good work, grounded in real reply rates, *and* attempted to ride the
 earlier human approval to execution. It got the work and none of the authority.
+
+> **On "worker", not "model".** Every worker in these runs is a deterministic script: the
+> `campaign-designer` composes its plan from the segment payload, and `fit-scorer` returns a fixed
+> dict. No model has been called in a live abeyance run yet — [`examples/model_workers.py`](../examples/model_workers.py)
+> is the wired-but-unexercised version. The guarantee does not care either way, which is the point:
+> `counts_as_decision()` never reads the payload, so it cannot tell a model's prose from a
+> script's dict. Stated here because a demo that says "model" where it means "script" is exactly
+> the kind of gap the rest of this document exists to close.
 
 **A fresh decision on the new plan**, then execution under a narrower envelope:
 

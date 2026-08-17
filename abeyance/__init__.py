@@ -51,13 +51,15 @@ Quickstart:
 from __future__ import annotations
 
 from .capability import Capability, CapabilityRegistry
+from .clearance import (ClearanceRegistry, ModelClearance, model_capability)
 from .cases import (HUMAN_DECISION, CaseExecution, CaseExecutor, CaseLoop, TickReport)
 from .claims import ClaimedExecution, claimed, execute_claimed
 from .cursor import Cursor, CursorRun, DueGate, DueVerdict, TriggerResult
 from .dispatch import DispatchRecord, DispatchReport, Dispatcher, EnvFor
 from .errors import (AlreadyExecuted, CapabilityMissing, CaseNotFound, ConfigurationError,
                      CursorNotCommittable, AbeyanceError, NoApproversError, NotAuthorized,
-                     PolicyError, ProposalNotFound, TransportError, UnknownApprover)
+                     NotCleared, PolicyError, ProposalNotFound, TransportError,
+                     UnknownApprover)
 from .interpret import DEFAULT_VOCABULARY, Suggestion, Vocabulary, interpret
 from .loop import (ApprovalLoop, Executor, InboundReply, NudgeResult, PollResult, ProposeResult)
 from .models import (Actor, ActorKind, Approver, Authorization, Case, CaseStatus, Contribution,
@@ -104,6 +106,8 @@ __all__ = [
     "RequestStatus", "Actor", "ActorKind", "Authorization",
     # capability
     "Capability", "CapabilityRegistry",
+    # clearance (which model may contribute which KIND, and on what evidence)
+    "ModelClearance", "ClearanceRegistry", "model_capability",
     # standing (the authority math)
     "authorize", "counts_as_decision", "narrow_scope", "Authority",
     # warrant (dynamic activity selection)
@@ -116,4 +120,5 @@ __all__ = [
     "AbeyanceError", "ConfigurationError", "NoApproversError", "PolicyError",
     "ProposalNotFound", "UnknownApprover", "AlreadyExecuted", "TransportError",
     "CursorNotCommittable", "CaseNotFound", "CapabilityMissing", "NotAuthorized",
+    "NotCleared",
 ]

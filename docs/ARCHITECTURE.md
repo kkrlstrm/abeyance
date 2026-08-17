@@ -183,7 +183,7 @@ Fetching an inbound with `read()` or `poll()` does not move it. See
 
 ## Testing
 
-124 tests, all on in-memory adapters, no network and no credentials. The ones worth reading
+292 tests, all on in-memory adapters, no network and no credentials. The ones worth reading
 first, because each pins a specific silent failure:
 
 | Test | Failure it prevents |
