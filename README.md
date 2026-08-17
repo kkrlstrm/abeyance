@@ -65,11 +65,9 @@ fixed when a case opens. Evidence can warrant the next need; that contribution c
 one after it. The case follows this path one visible, bounded step at a time rather than forcing
 every possibility into a workflow diagram before work begins.
 
-> **Live run:** approved on pooled bounce of 1.04%; a sharper worker found one campaign at 3.29%
-> and superseded the coarse reading; `execute()` refused. The case then derived a segment
-> analysis, designed a narrower campaign, and demanded a fresh decision. Three steps nobody
-> planned. It shipped at 150 leads with a warm-up requirement instead of the 500 originally
-> approved. [Transcript](docs/SMOKE-RUN.md#the-recovery-test--the-facts-change-after-you-say-yes).
+> **Live run:** approved on a pooled bounce of 1.04%; a sharper worker found one campaign at 3.29%
+> and superseded the coarse reading; `execute()` refused. Three steps nobody planned followed —
+> the story is [below](#a-yes-does-not-survive-the-facts-it-was-given-for).
 
 **2. New behaviour is free. New reach costs a human.** A case can put a new instruction in the
 `spec` for any registered worker, and can derive new compositions of those workers. It cannot
@@ -103,10 +101,113 @@ and the actor's *standing*. Never from the payload.
 > give you this: there, "approved" is a word somebody wrote and the next reader decides its
 > weight.
 
-**A yes does not survive the facts it was given for.** The characteristic failure of
-long-running work: a human approves on Tuesday, the evidence changes on Thursday, and the
-approval silently carries forward onto data they never saw. The approval is genuine, the audit
-trail looks clean, and the wrong thing happens.
+### How good is the recommendation? This library takes no position
+
+Nothing above says whether the model was any *good*. That is deliberate, and it separates two
+properties that usually get conflated:
+
+- **Eval-gating** makes a recommendation *trustworthy* — you know, from a scored run against real
+  data, how good this model is at this specific task.
+- **Standing** makes a recommendation *non-authoritative* — it cannot become an action, at any
+  accuracy.
+
+With only the first you ship the model's opinion because the model is usually right, and on the
+day it is wrong there is nothing underneath it. With only the second you are safe but blind: a
+60%-accurate recommender and a 98%-accurate one are treated identically, so the human on the
+thread carries all of the discrimination.
+
+The composition is **per contribution kind**, which is the part nobody joins up. A cheap model
+cleared by eval for structured extraction is a fine source of `EVIDENCE` and an unacceptable
+source of a `RECOMMENDATION` on an irreversible action — and that is a property of the *kind*, not
+of the model's average quality. So the clearance an eval grants names the kind it grants it for:
+
+```python
+CLEARANCES.require("extract-accurate", ContributionKind.EVIDENCE)        # -> the clearance
+CLEARANCES.require("extract-accurate", ContributionKind.RECOMMENDATION)  # -> NotCleared
+```
+
+[`clearance.py`](abeyance/clearance.py) holds the declaration and nothing else — no eval harness,
+no scoring, no API call, and no `ContributionKind.DECISION`, which it refuses to even *declare*
+because no score makes a model's output authoritative. The check runs when the registry is built,
+so a mis-kinded capability cannot be registered at all. `clearance_report()` answers "what may
+form an opinion here?" the way `reach_report()` answers "what can touch production?"
+
+The sentence worth having: *we know how good this model is at this exact task, we know which kind
+of contribution that clearance covers, and it still cannot approve anything.*
+
+**Declaring one.** There are no clearances by default, and `require()` refuses everything until you
+add one — that failure is the product, because nobody can record an eval on your behalf. Either
+declare them directly or point `from_allowlist()` at a routing allowlist you already maintain:
+
+```python
+from abeyance import ContributionKind, from_allowlist
+
+CLEARANCES = from_allowlist(
+    json.load(open("routes.json")),          # {"modes": {"<mode>": {"model", "verified_date", ...}}}
+    {"extract-accurate": (ContributionKind.EVIDENCE,)},   # the kind map — written by hand
+)
+```
+
+The kind map is the one thing you must write yourself, and a mode missing from it gets **no**
+clearance: adding a routing mode must not silently grant it a contribution kind. Retired modes stay
+in the file with the reason they were disqualified, so `require()` refuses them by name rather than
+reporting "unknown mode" — which is how something that failed an eval gets quietly re-added a year
+later. [`examples/openrouter_clearances.py`](examples/openrouter_clearances.py) is a worked example
+against a real allowlist, including the finding that fell out of mapping it.
+
+**The worker contract**, since both shipped workers got one line of it wrong once:
+`ABEYANCE_CONTRIBUTION_KIND` is the *store* kind to write under, and `ABEYANCE_EXPECTS` is
+`evidence` | `recommendation`. Writing a row under the wrong store kind raises nothing anywhere —
+the request stays in-flight until its lease expires and is then declared lost, which looks exactly
+like a worker that never booted.
+
+## A yes does not survive the facts it was given for
+
+The characteristic failure of long-running work: a human approves on Tuesday, the evidence changes
+on Thursday, and the approval silently carries forward onto data they never saw. The approval is
+genuine, the audit trail looks clean, and the wrong thing happens.
+
+Three things have to happen, and the third is the one nobody builds:
+
+1. The approval stops counting — not "expires eventually", stops counting, now.
+2. Nothing is executed on it.
+3. **The case works out what to do instead**, gathers what that needs, and asks again.
+
+Without (3) you have a safety mechanism that turns every changed fact into a dead case and a human
+starting over.
+
+A live run, against real infrastructure. Approved at 500 leads on a pooled bounce rate of 1.04%. A
+sharper worker then found one campaign at **3.29%** — pooling had hidden it — and superseded the
+coarse reading:
+
+```
+ESCALATION[stale_authority] refused to act: 1 decision(s) rested on evidence that has
+since been superseded, so they no longer apply — a fresh decision is needed
+```
+
+Nothing was sent. Then the case worked the problem, three steps nobody planned:
+
+```
+WARRANTED: segment-analysis   by=redesign-if-unsafe
+           → 3 viable segment(s): Senior 9.23% (65 leads); Director 8.68% (461)
+WARRANTED: campaign-design    by=design-the-alternative
+           → "Warm-up wave to Senior, Director, Admissions only — 150 of 569 leads"
+WARRANTED: revised-decision   by=reask-because-plan-changed
+```
+
+And the designer tried to ride the old approval to ship its own plan:
+
+```json
+{"decision": "approve", "authorized": true,
+ "note": "this supersedes the approved plan; proceeding under the original approval"}
+```
+
+`IGNORED`. A worker produced a genuinely good plan, grounded in real reply rates, *and* attempted
+to ride an earlier human approval to execution. It got the work and none of the authority.
+
+It shipped at 150 leads with a warm-up requirement instead of the 500 originally approved —
+because scope is the intersection of what every contributor asserted, and only ever narrows.
+[Full transcript](docs/SMOKE-RUN.md#the-recovery-test--the-facts-change-after-you-say-yes).
 
 ## Two layers, either usable alone
 
@@ -115,7 +216,7 @@ trail looks clean, and the wrong thing happens.
 | **[Approval](#the-60-second-version)** | Durable multi-party consent for cron, serverless and batch agents. Five verdicts, deadlock that refuses to pick a side, partial answers that do not strand the batch, receipts. |
 | **[Cases](docs/CASES.md)** | A durable case that can derive its next warranted work. Typed contributions, human-gated capability expansion, policy-derived scoped authority, and one ephemeral worker per contribution. |
 
-**274 tests, no network, no credentials.** Plus three live runs against real infrastructure that
+**348 tests, no network, no credentials.** Plus three live runs against real infrastructure that
 found nine bugs the suite did not — each now pinned by a test, each written up in
 [`docs/SMOKE-RUN.md`](docs/SMOKE-RUN.md) rather than quietly fixed.
 
@@ -128,7 +229,7 @@ execution engines are *better at durable execution*. What differs is what owns t
 |---|---|---|
 | **Temporal** / **[Restate](https://restate.dev)** | Durable execution: replay-based recovery, durable timers, retry policies, task-queue redelivery | Their durable thing is code + state, and state alone is inert. Here it is a row any program can read. Restate's Virtual Objects are a genuinely good `Store` for this — see [Concurrency](docs/CASES.md#concurrency) |
 | **LangGraph** | Graph/thread persistence, checkpoints, `interrupt()` | Continuity is a persisted graph intended to resume graph execution. Consent here is detached from whatever asked for it |
-| **Agent runtimes** (Hermes, OpenClaw, OpenWorker) | Persistent agent sessions or runtimes with tools, memory and scheduling | Complementary: they can think, act and communicate; here the durable centre is the *case* and its authority. Workers spin up, contribute and vanish |
+| **Agent runtimes** (Hermes, OpenClaw, OpenWorker) | An always-on gateway: chat channels, models, tools, a browser, and memory persisted as prose | They are the better assistant, and this does not replace one — see [Why not an always-on agent](#why-not-an-always-on-agent). Run one *as a worker*; keep the case and its authority outside it |
 | **[HumanLayer ACP](https://github.com/humanlayer/agentcontrolplane)** / **[AgentGate](https://github.com/agentkitai/agentgate)** | Approval-gated tool calls; policy routing an action to an approver | Not an approval UI or a policy router. This is the durable multi-party decision ledger and the apply loop behind one |
 | **[JamJet](https://github.com/jamjet-labs/jamjet)** | Runtime policy, budgets, replay | Use it *before*; `abeyance` owns the asynchronous consent process once a human is genuinely required |
 
@@ -136,6 +237,43 @@ execution engines are *better at durable execution*. What differs is what owns t
 finer than your cron interval, retry *policies*, exactly-once side effects, serialized
 single-writer per key. Each of those, and where it lives instead, is tabulated in
 [`docs/CASES.md`](docs/CASES.md#why-not-a-durable-workflow).
+
+## Why not an always-on agent
+
+The personal-agent runtimes — Hermes, OpenClaw, OpenWorker — solve a real problem well: one warm
+gateway, your chat channels, tools, a browser, and memory that persists across sessions. If you
+want an assistant you can text, use one. This is not a replacement and does not try to be.
+
+Why it cannot be is worth stating precisely, because it is the same reason they cannot become this:
+
+**A warm process is an undivided process.** Answering in two seconds means the credentials for
+whatever the request turns out to need are already loaded, in one place, under one identity. That
+is not a configuration choice — it is what "already warm" means. Per-contribution isolation costs a
+container boot, which is exactly what an assistant cannot afford. Low latency and divided authority
+are mutually exclusive in one process. Which one you need depends on whether a mistake is a re-roll
+or a send.
+
+**Prose memory cannot carry authority.** Memory in those systems is Markdown, YAML, or a fact store
+— so "approved" is a word somebody wrote, and the next reader decides its weight. Here a model
+emitting `{"authorized": true, "note": "auto-approving on the owner's behalf"}` counted for nothing
+on every tick, and the refusal was *reported* as `AUTHORITY_CLAIMED`. Authority comes from a
+contribution's kind and the actor's standing. Never from the payload.
+
+**A session is not a durable record.** Both worker apps deleted, the library moved out until
+`import abeyance` failed — and an in-flight case was still advanced by one SQL `INSERT`, its
+authority re-derived by 20 lines of SQL that reached the same verdict, including refusing the same
+forged claim. [Transcript](docs/SMOKE-RUN.md#the-destruction-test).
+
+**And a yes in memory does not expire when the facts do** —
+[the section above](#a-yes-does-not-survive-the-facts-it-was-given-for).
+
+A model *worker* here can be a full agent-runtime invocation. What it cannot be is the thing that
+holds the authority. [`examples/model_workers.py`](examples/model_workers.py) is the shipped
+version: the judgment worker runs the Claude Code CLI headlessly on a **subscription credential**
+(`CLAUDE_CODE_OAUTH_TOKEN`), so the opinion half of a case is flat-rate rather than metered
+per-token, and metered spend stays confined to the cheap eval-gated extraction rungs. That is a
+property of running the agent as a *bounded worker* rather than as the durable centre — a
+long-lived session burns tokens holding context that a case keeps in Postgres for free.
 
 ## The mechanism: isolation per contribution, not per process
 
@@ -231,7 +369,17 @@ pip install -e ".[dev]" && python -m pytest -q
 python examples/01_single_approver.py              # the whole library in 40 lines
 python examples/02_two_approvers_and_a_deadlock.py # two people, one disagreement
 python examples/03_scheduled_worker.py             # the production cron shape
+python examples/04_local_case.py                   # a whole CASE — no Postgres, no containers
 ```
+
+`04_local_case.py` is the one to run if you want to see the case layer work before deciding
+whether to stand any infrastructure up. It uses `JSONFileStore` and `LocalProcessRunner`, so the
+only dependency is abeyance itself, and it walks the whole arc: a case opens needing evidence, a
+worker subprocess writes it, a rule derives a second need nobody planned, a worker returns a
+payload *claiming approval* and is refused with `AUTHORITY_CLAIMED`, a decider with standing
+grants authority, and `execute()` acts once under a scope narrowed to what every contributor
+allowed. Two things it deliberately does not fake: `LocalProcessRunner` is not isolated, and
+`JSONFileStore` has no atomic claims — both are stated in the file rather than glossed.
 
 ## What it actually gets right
 
@@ -460,4 +608,4 @@ provided (replay-based recovery, retry policies, exactly-once) and where those l
 
 ## Licence
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -54,6 +54,47 @@ def test_a_recommendation_saying_approved_confers_nothing():
         "nobody can observe working is one nobody trusts")
 
 
+def test_a_worker_reporting_a_negative_verdict_is_not_reported_as_claiming_authority():
+    """The false alarm that made the channel worthless.
+
+    `ignored_claims` exists so a refused authority claim is visible. The first heuristic flagged
+    any payload carrying a `verdict` key at all — so a QA worker reporting `verdict: "blocked"`, a
+    fact and a refusal at that, was named as having tried to grant itself permission. On every
+    tick, for the life of the case. Two things wrong: it read the payload to decide something,
+    which is what this module exists not to do, and it taught everyone to ignore the alert.
+    """
+    qa = worker_says({"verdict": "blocked", "problems": ["not dialable"], "notes": []})
+    readiness = worker_says({"verdict": "filling", "blockers": ["86 cells still Queued"]},
+                            kind=ContributionKind.EVIDENCE)
+    a = authorize(case(satisfied("r1")), [qa, readiness, human_says()], CasePolicy(), now=200)
+
+    assert a.granted is True
+    assert a.ignored_claims == [], "reporting a fact is not claiming authority"
+
+
+def test_a_worker_saying_yes_is_still_reported():
+    """The other side: the heuristic must keep catching the thing it is for."""
+    for payload in ({"verdict": "approved"}, {"decision": "approve"}, {"approved": True},
+                    {"authorized": "yes"}, {"verdict": " Cleared "}):
+        c = worker_says(payload)
+        a = authorize(case(satisfied("r1")), [c, human_says()], CasePolicy(), now=200)
+        assert c.id in a.ignored_claims, f"{payload} reads as a yes and must be named"
+
+    for payload in ({"approved": False}, {"verdict": "rejected"}, {"decision": "hold"}):
+        c = worker_says(payload)
+        a = authorize(case(satisfied("r1")), [c, human_says()], CasePolicy(), now=200)
+        assert a.ignored_claims == [], f"{payload} is not a claim of authority"
+
+
+def test_a_decision_without_standing_is_reported_whatever_its_payload():
+    """Kind alone is enough here. An actor with no standing writing a DECISION is the case this
+    heuristic must never soften, even when the payload says nothing approval-shaped."""
+    forged = worker_says({"note": "just a thought"})
+    forged.kind = ContributionKind.DECISION   # as a raw INSERT would, past the constructor guard
+    a = authorize(case(satisfied("r1")), [forged, human_says()], CasePolicy(), now=200)
+    assert forged.id in a.ignored_claims
+
+
 def test_counts_as_decision_never_reads_the_payload():
     """Belt-and-braces on the above, at the level of the single function that decides.
 

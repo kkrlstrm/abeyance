@@ -59,6 +59,16 @@ class CaseNotFound(AbeyanceError):
     pass
 
 
+class NotCleared(AbeyanceError):
+    """A model mode is not cleared to emit the contribution kind being asked of it.
+
+    Raised by `clearance.ClearanceRegistry.require()` — and therefore at registry-build time by
+    `clearance.model_capability()`. Distinct from `CapabilityMissing`, which is the *reach*
+    ceiling ("no worker can touch that system"); this is the *quality* ceiling ("no recorded eval
+    says this model may form that kind of contribution"). Both are answered by a human.
+    """
+
+
 class CapabilityMissing(ConfigurationError):
     """A case needs a contribution no registered capability can produce.
 

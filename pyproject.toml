@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abeyance"
-version = "0.2.0"
+version = "0.2.1"
 description = "Durable cases for autonomous work: derive the next warranted task, gate new reach behind human approval, and execute only under current authority."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,6 +15,7 @@ keywords = ["durable-consent", "approval", "human-in-the-loop", "ai-agents", "ag
             "serverless", "batch", "guardrails", "hitl"]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Libraries",

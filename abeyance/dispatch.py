@@ -137,6 +137,29 @@ class Dispatcher:
 
     # ----------------------------------------------------------------- collect
 
+    @staticmethod
+    def _answered(contributions: Sequence[Contribution]) -> Dict[str, int]:
+        """request id -> the newest contribution epoch answering it.
+
+        An epoch rather than a set of ids, because "has this been answered" is not quite the
+        question: a re-probed request (`CaseLoop.reprobe`) is answered only by a contribution
+        newer than the moment it was re-armed. The previous run's row is still there under the
+        same request id, and reading it as an answer would settle a request whose container
+        never ran — a stale fact presented as a current one.
+        """
+        newest: Dict[str, int] = {}
+        for c in contributions:
+            if not c.request_id:
+                continue
+            if c.created_epoch >= newest.get(c.request_id, -1):
+                newest[c.request_id] = c.created_epoch
+        return newest
+
+    @staticmethod
+    def _is_answered(req: ContributionRequest, answered: Dict[str, int]) -> bool:
+        got = answered.get(req.id)
+        return got is not None and got >= req.armed_at
+
     def collect(self, case: Case, contributions: Sequence[Contribution]) -> bool:
         """Settle every request whose contribution has arrived. Returns True if anything moved.
 
@@ -145,10 +168,10 @@ class Dispatcher:
         after derivation — a rule waiting on evidence would not see it until the following tick,
         and every step of a dynamic chain would cost an extra hour for no reason.
         """
-        arrived = {c.request_id for c in contributions if c.request_id}
+        answered = self._answered(contributions)
         changed = False
         for req in case.requests:
-            if req.id in arrived and req.status not in (
+            if self._is_answered(req, answered) and req.status not in (
                     RequestStatus.SATISFIED, RequestStatus.CANCELLED):
                 req.status = RequestStatus.SATISFIED
                 req.last_error = ""
@@ -166,7 +189,7 @@ class Dispatcher:
         worker gets duplicated on the tick after it succeeded.
         """
         report = DispatchReport()
-        satisfied_ids = {c.request_id for c in contributions if c.request_id}
+        answered = self._answered(contributions)
         now = self.clock.now()
 
         for req in case.requests:
@@ -175,7 +198,7 @@ class Dispatcher:
                 continue
 
             # -- collect ---------------------------------------------------
-            if req.id in satisfied_ids:
+            if self._is_answered(req, answered):
                 if req.status is not RequestStatus.SATISFIED:
                     req.status = RequestStatus.SATISFIED
                     req.last_error = ""

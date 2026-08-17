@@ -51,13 +51,16 @@ Quickstart:
 from __future__ import annotations
 
 from .capability import Capability, CapabilityRegistry
+from .clearance import (ClearanceRegistry, ModelClearance, from_allowlist,
+                        model_capability, unmapped_modes)
 from .cases import (HUMAN_DECISION, CaseExecution, CaseExecutor, CaseLoop, TickReport)
 from .claims import ClaimedExecution, claimed, execute_claimed
 from .cursor import Cursor, CursorRun, DueGate, DueVerdict, TriggerResult
 from .dispatch import DispatchRecord, DispatchReport, Dispatcher, EnvFor
 from .errors import (AlreadyExecuted, CapabilityMissing, CaseNotFound, ConfigurationError,
                      CursorNotCommittable, AbeyanceError, NoApproversError, NotAuthorized,
-                     PolicyError, ProposalNotFound, TransportError, UnknownApprover)
+                     NotCleared, PolicyError, ProposalNotFound, TransportError,
+                     UnknownApprover)
 from .interpret import DEFAULT_VOCABULARY, Suggestion, Vocabulary, interpret
 from .loop import (ApprovalLoop, Executor, InboundReply, NudgeResult, PollResult, ProposeResult)
 from .models import (Actor, ActorKind, Approver, Authorization, Case, CaseStatus, Contribution,
@@ -73,7 +76,7 @@ from .standing import Authority, authorize, counts_as_decision, narrow_scope
 from .verdict import VerdictSummary, summarize, verdict_for, verdicts
 from .warrant import CaseView, Derivation, Need, Rule, always, derive, when_payload
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "__version__",
@@ -104,6 +107,9 @@ __all__ = [
     "RequestStatus", "Actor", "ActorKind", "Authorization",
     # capability
     "Capability", "CapabilityRegistry",
+    # clearance (which model may contribute which KIND, and on what evidence)
+    "ModelClearance", "ClearanceRegistry", "model_capability",
+    "from_allowlist", "unmapped_modes",
     # standing (the authority math)
     "authorize", "counts_as_decision", "narrow_scope", "Authority",
     # warrant (dynamic activity selection)
@@ -116,4 +122,5 @@ __all__ = [
     "AbeyanceError", "ConfigurationError", "NoApproversError", "PolicyError",
     "ProposalNotFound", "UnknownApprover", "AlreadyExecuted", "TransportError",
     "CursorNotCommittable", "CaseNotFound", "CapabilityMissing", "NotAuthorized",
+    "NotCleared",
 ]

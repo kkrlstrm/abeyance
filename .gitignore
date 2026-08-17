@@ -23,3 +23,8 @@ credentials.json
 # smoke-run scratch: which case a local rehearsal is pointed at. Per-machine, not a fact.
 examples/.smoke-case-id
 examples/.recovery-case-id
+
+# build artifacts
+dist/
+build/
+*.egg-info/

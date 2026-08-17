@@ -226,18 +226,38 @@ def authorize(case: Case, contributions: Sequence[Contribution], policy: CasePol
                      reason=f"authorized by {sorted(directions)} on {len(basis)} contribution(s)")
 
 
+APPROVAL_WORDS = ("approve", "approved", "approves", "authorize", "authorized", "cleared",
+                  "clear", "yes", "ok", "okay", "proceed", "go")
+"""Payload values that read as a yes. Used only by the reporting heuristic below."""
+
+
 def _claims_authority_without_standing(c: Contribution, action: str) -> bool:
     """Did this contribution try to confer authority it does not have?
 
     Only used for reporting. A recommendation saying "approved" is not an error — it is a
     recommendation doing its job — but a reviewer should be able to see that the system read it
     and declined to treat it as permission.
+
+    It asks whether the payload says *yes*, not merely whether it uses an authority-shaped word.
+    The first version flagged any payload carrying a `verdict` key, so a QA worker reporting
+    `verdict: "blocked"` — a fact, and a refusal at that — was reported as having tried to grant
+    itself permission, on every tick. Two things wrong with that, the second worse than the first:
+    it read the payload to decide something, which is exactly what this module exists not to do;
+    and a channel that exists to make the guarantee observable becomes worthless if it cries wolf
+    hourly, because people learn to filter it and then miss the real one.
     """
     if counts_as_decision(c, action):
         return False
-    asserts = (c.kind is ContributionKind.DECISION
-               or any(k in c.payload for k in ("approved", "authorized", "decision", "verdict")))
-    return bool(asserts)
+    if c.kind is ContributionKind.DECISION:
+        return True  # a decision from an actor without standing for this action, whatever it says
+    for key in ("approved", "authorized"):
+        got = c.payload.get(key)
+        if got is True or str(got).strip().lower() in APPROVAL_WORDS:
+            return True
+    for key in ("decision", "verdict"):
+        if str(c.payload.get(key, "")).strip().lower() in APPROVAL_WORDS:
+            return True
+    return False
 
 
 # --------------------------------------------------------------------------- helpers

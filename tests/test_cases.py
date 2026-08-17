@@ -454,21 +454,74 @@ def test_authority_is_rechecked_at_commit_time_not_trusted_from_the_row(cases, c
     assert Escalation.STALE_AUTHORITY in [e.kind for e in escalations]
 
 
-def test_a_blocked_case_recovers_on_the_next_tick_once_state_is_consistent(cases, clock):
-    """Self-healing: the stale envelope is re-derived rather than needing a human to unstick it."""
+def test_a_blocked_case_recovers_once_a_fresh_decision_covers_the_new_evidence(cases, clock):
+    """Self-healing: a case blocked by a stale yes is not stuck, it is waiting for a new one.
+
+    The earlier version of this test did not actually block the case — its executor returned None,
+    which is a successful execution — so it was really asserting that a tick turned an EXECUTED
+    case back into an AUTHORIZED one. It did, and that let `execute()` run a second time. See
+    `test_a_tick_cannot_resurrect_an_executed_case`.
+    """
+    case = cases.open(action="launch-campaign", subject_key="acme",
+                      needs=["campaign-performance"])
+    cases.tick(case.id)
+    first = worker_contributes(cases, case.id, "campaign-performance", {"safe": True})
+    cases.policy_decision(case.id, rule="pre-cleared", standing=("launch-campaign",))
+    assert cases.tick(case.id)[0].authorized is True
+
+    clock.advance(hours=1)
+    cases.contribute(case.id, kind=ContributionKind.EVIDENCE, actor=Actor.worker("db-evidence"),
+                     request_id="campaign-performance", payload={"safe": False},
+                     supersedes=first.id, revision="r2")
+    assert cases.execute(case.id, lambda *a: pytest.fail("stale")).written is False
+    assert cases.get(case.id).status is CaseStatus.BLOCKED
+
+    # A decision taken NOW rests on the reading that is live now.
+    clock.advance(minutes=5)
+    cases.policy_decision(case.id, rule="pre-cleared", standing=("launch-campaign",),
+                          request_id="second-look")
+    report = cases.tick(case.id)[0]
+    assert report.status is CaseStatus.AUTHORIZED, "recovered without a human unsticking it"
+    assert cases.execute(case.id, lambda *a: {"ok": True}).written is True
+
+
+def test_a_tick_cannot_resurrect_an_executed_case(cases, clock):
+    """`execute()` acts once — and used to be trivially bypassable.
+
+    Its guard is `status is EXECUTED`, but `_tick_one` recomputed status from authority and wrote
+    AUTHORIZED straight over EXECUTED. One tick later the same case executed again: a list pushed
+    to the dialer twice, a campaign sent twice. Nothing in the record looked wrong, because both
+    executions were genuinely authorized.
+    """
+    ran = []
     case = cases.open(action="launch-campaign", subject_key="acme")
     cases.policy_decision(case.id, rule="pre-cleared", standing=("launch-campaign",))
     cases.tick(case.id)
-    first = cases.contributions(case.id)[0]
+    assert cases.execute(case.id, lambda *a: ran.append(1) or {"ok": True}).written is True
+    assert cases.get(case.id).status is CaseStatus.EXECUTED
 
-    cases.contribute(case.id, kind=ContributionKind.EVIDENCE, actor=Actor.worker("db-evidence"),
-                     request_id="volunteered", payload={"note": "fyi"})
-    cases.execute(case.id, lambda *a: None)  # trips the stale check, blocks
-
-    clock.advance(minutes=5)
+    clock.advance(hours=1)
     report = cases.tick(case.id)[0]
-    assert report.status is CaseStatus.AUTHORIZED
-    assert cases.execute(case.id, lambda *a: {"ok": True}).written is True
+    assert report.status is CaseStatus.EXECUTED, "a tick must not re-open finished work"
+    assert cases.get(case.id).status is CaseStatus.EXECUTED
+
+    out = cases.execute(case.id, lambda *a: ran.append(1) or {"ok": True})
+    assert out.written is False and out.blocked == "already executed"
+    assert len(ran) == 1
+
+
+def test_a_tick_does_not_dispatch_on_an_abandoned_case(cases, clock, runner):
+    """The same guard, from the money side: an explicitly closed case must not start containers."""
+    case = cases.open(action="launch-campaign", subject_key="acme",
+                      needs=["campaign-performance"])
+    started = len(runner.started)
+    stored = cases.get(case.id)
+    stored.status = CaseStatus.ABANDONED
+    cases.save(stored)
+
+    report = cases.tick(case.id)[0]
+    assert report.dispatch is None and report.derivation is None
+    assert len(runner.started) == started, "no container for work somebody closed"
 
 
 # --------------------------------------------------------------- housekeeping
@@ -538,3 +591,30 @@ def test_two_case_loops_over_one_store_keep_their_state_apart(store, registry, c
     b = CaseLoop("beta", store=store, registry=registry, clock=clock)
     a.open(action="x", subject_key="s")
     assert len(a.all()) == 1 and b.all() == []
+
+
+def test_an_ignored_authority_claim_is_escalated_once_not_every_tick(cases, clock, escalations):
+    """The alert that would otherwise repeat hourly for the life of the case.
+
+    `ignored_claims` is how the guarantee becomes observable — a refused authority claim gets
+    named. But it was raised on every tick, so one ignored claim on a case that lives three weeks
+    produced hundreds of identical alerts, and the channel that exists to be noticed became the
+    one everybody filters. Deduped the same way stale decisions already were.
+    """
+    case = cases.open(action="launch-campaign", subject_key="acme")
+    worker_contributes(cases, case.id, "volunteered", {"approved": True},
+                       kind=ContributionKind.RECOMMENDATION)
+
+    for _ in range(4):
+        clock.advance(hours=1)
+        cases.tick(case.id)
+
+    claimed = [e for e in escalations if e.kind is Escalation.AUTHORITY_CLAIMED]
+    assert len(claimed) == 1, f"named once, not {len(claimed)} times"
+
+    # A *different* claim is a new fact and does get named.
+    worker_contributes(cases, case.id, "second", {"authorized": "yes"},
+                       kind=ContributionKind.RECOMMENDATION)
+    clock.advance(hours=1)
+    cases.tick(case.id)
+    assert len([e for e in escalations if e.kind is Escalation.AUTHORITY_CLAIMED]) == 2
