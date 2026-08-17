@@ -17,7 +17,7 @@ on a list filling in a vendor's UI, a document being written, an invoice clearin
   instead, which leaves the record intact and visibly stale) and for an external need (no worker to
   re-run; a wait is not a probe).
 
-**Three holes found by writing those tests, all of the quiet kind:**
+**Four holes found by writing those tests and by a live run, all of the quiet kind:**
 
 - **A tick could resurrect an executed case, and it executed again.** `execute()` guards on
   `status is EXECUTED`, but `_tick_one` recomputed status from authority and wrote `AUTHORIZED`
@@ -31,12 +31,19 @@ on a list filling in a vendor's UI, a document being written, an invoice clearin
   "pre-cleared because suppression is verified" kept clearing after suppression stopped being
   verified. The rule fired once, on one reading, and nothing re-evaluated it. Delegated decisions
   are now stamped exactly as harvested ones are.
+- **The observability channel cried wolf, twice over.** `ignored_claims` exists so a refused
+  authority claim is visible, and two things made it useless. Its heuristic flagged any payload
+  carrying a `verdict` key, so a QA worker reporting `verdict: "blocked"` — a fact, and a refusal at
+  that — was named as having tried to grant itself permission; it now asks whether the payload says
+  *yes*, rather than reading the payload to decide something, which is what `standing.py` exists not
+  to do. And the escalation fired on every tick, so one ignored claim on a three-week case produced
+  hundreds of identical alerts. Deduped, like stale decisions already were.
 - **A refusal at commit time left the row claiming `AUTHORIZED`.** The stale-decision path returned
   without saving, so a case that had reached AUTHORIZED kept that label until something ticked it
   again — and if nothing did, every reader of the store saw a case cleared to act that `execute()`
   would refuse. The label now matches what `execute()` would actually do.
 
-304 tests.
+327 tests.
 
 ## 0.2.0 — unreleased
 

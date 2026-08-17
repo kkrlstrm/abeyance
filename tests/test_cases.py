@@ -591,3 +591,30 @@ def test_two_case_loops_over_one_store_keep_their_state_apart(store, registry, c
     b = CaseLoop("beta", store=store, registry=registry, clock=clock)
     a.open(action="x", subject_key="s")
     assert len(a.all()) == 1 and b.all() == []
+
+
+def test_an_ignored_authority_claim_is_escalated_once_not_every_tick(cases, clock, escalations):
+    """The alert that would otherwise repeat hourly for the life of the case.
+
+    `ignored_claims` is how the guarantee becomes observable — a refused authority claim gets
+    named. But it was raised on every tick, so one ignored claim on a case that lives three weeks
+    produced hundreds of identical alerts, and the channel that exists to be noticed became the
+    one everybody filters. Deduped the same way stale decisions already were.
+    """
+    case = cases.open(action="launch-campaign", subject_key="acme")
+    worker_contributes(cases, case.id, "volunteered", {"approved": True},
+                       kind=ContributionKind.RECOMMENDATION)
+
+    for _ in range(4):
+        clock.advance(hours=1)
+        cases.tick(case.id)
+
+    claimed = [e for e in escalations if e.kind is Escalation.AUTHORITY_CLAIMED]
+    assert len(claimed) == 1, f"named once, not {len(claimed)} times"
+
+    # A *different* claim is a new fact and does get named.
+    worker_contributes(cases, case.id, "second", {"authorized": "yes"},
+                       kind=ContributionKind.RECOMMENDATION)
+    clock.advance(hours=1)
+    cases.tick(case.id)
+    assert len([e for e in escalations if e.kind is Escalation.AUTHORITY_CLAIMED]) == 2

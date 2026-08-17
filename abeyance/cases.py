@@ -680,10 +680,21 @@ class CaseLoop:
             # Observable on purpose. A guarantee whose operation is invisible is a guarantee
             # nobody believes, so every contribution that tried to confer authority and failed
             # gets named once, on the tick it first counted for nothing.
-            report.escalations.append(self._raise(
-                Escalation.AUTHORITY_CLAIMED, case, report.authority.ignored_claims,
-                f"{len(report.authority.ignored_claims)} contribution(s) asserted authority "
-                f"without standing and were not counted: {report.authority.ignored_claims}"))
+            #
+            # **Once** is the operative word, and the first version did not honour it: it raised on
+            # every tick, so one ignored claim on a case that lives three weeks produced hundreds
+            # of identical alerts and the channel that exists to make the guarantee visible became
+            # the one everybody filters. Same treatment as the stale-decision branch below.
+            seen = {tuple(h.get("claims") or []) for h in case.history
+                    if h.get("event") == "authority-claimed"}
+            key = tuple(sorted(report.authority.ignored_claims))
+            if key not in seen:
+                case.log("authority-claimed", claims=list(key))
+                dirty = True
+                report.escalations.append(self._raise(
+                    Escalation.AUTHORITY_CLAIMED, case, report.authority.ignored_claims,
+                    f"{len(report.authority.ignored_claims)} contribution(s) asserted authority "
+                    f"without standing and were not counted: {report.authority.ignored_claims}"))
 
         # A request that exhausted its attempts can never be satisfied by waiting, so a case
         # holding one is not OPEN — it needs a human to fix the worker, cancel the request, or
