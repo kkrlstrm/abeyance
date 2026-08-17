@@ -1,10 +1,48 @@
 # abeyance — disposable agents, durable work
 
-Coordinate humans, machines, and models over days or weeks without leaving one durable agent
+Coordinate humans, machines, and models over days, weeks, or months without leaving one durable agent
 or workflow in charge of the work. A case is the durable record. Workers are short-lived,
-isolated specialists: they appear, contribute one typed fact, and disappear.
+isolated specialists: they appear, contribute one typed fact, and disappear. Agents can be powered from API keys or your Anthropic/OpenAI subscriptions.
 
-> **Autonomous paths. Human-gated reach. Durable work.**
+> **Autonomous pathfinding within declared reach. Human-gated expansion. Durable work.**
+
+```mermaid
+flowchart LR
+    Tick["Stateless tick<br/>cron · serverless · any host"]
+
+    subgraph Durable["Durable control plane — the only continuity"]
+        Case[("Case<br/>needs · typed contributions<br/>policy · history")]
+        Registry["Capability registry<br/>declared workers + reach"]
+        Authority{"Current authority?<br/>type + standing + live evidence"}
+    end
+
+    subgraph Worker["One disposable, isolated worker"]
+        Specialist["Registered specialist<br/>case/request/spec only<br/>its app identity, secrets & reach"]
+    end
+
+    Human["Human decision<br/>detached approval loop"]
+    Blocked["BLOCKED<br/>new reach is required"]
+    Execute["Execute within<br/>scoped authority"]
+    Receipt["Receipt / audit trail"]
+    Gone["Worker exits<br/>and is destroyed"]
+
+    Tick -->|"read · derive · dispatch"| Case
+    Case -->|"warranted need"| Registry
+    Registry -->|"known capability"| Specialist
+    Specialist -->|"one EVIDENCE or<br/>RECOMMENDATION contribution"| Case
+    Specialist -.-> Gone
+
+    Registry -->|"no capability can satisfy need"| Blocked
+    Blocked -->|"human approves and mints capability"| Registry
+
+    Human -->|"DECISION from an actor<br/>with standing"| Case
+    Case -->|"re-derive at commit time"| Authority
+    Authority -->|"yes"| Execute --> Receipt
+    Authority -->|"not yet / facts changed"| Case
+```
+
+> A case holds the work, its evidence, and its authority. Ticks and specialists may disappear;
+> only registered reach and standing-backed human decisions can move it forward.
 
 A case can derive its next warranted task from the evidence already gathered, dispatch a
 registered specialist to do it, and revise the path when sharper evidence changes the plan.
@@ -278,7 +316,7 @@ The corollary is the design's sharpest constraint, and it is a feature:
 > through its own approval loop, with no moment where a model grants itself new reach.
 
 Cost, stated plainly: a container boot plus image pull is seconds. This is for work measured in
-hours to days. It is the wrong tool for a 200ms tool call.
+days to weeks. It is the wrong tool for a 200ms tool call.
 
 ## The 60-second version
 
@@ -570,14 +608,4 @@ provided (replay-based recovery, retry policies, exactly-once) and where those l
 
 ## Licence
 
-Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-Permissive on purpose. This is meant to sit *inside* other people's control planes, and a
-copyleft licence is a procurement conversation rather than a `pip install` — several of the
-organisations most likely to need durable consent are the ones with a blanket ban on it. Embed it,
-modify it, ship it in a closed product; the patent grant is included and attribution is the only
-ask.
-
-Sibling repos in the same line of work: [agent-guard](https://github.com/kkrlstrm/agent-guard),
-[agent-tenancy](https://github.com/kkrlstrm/agent-tenancy), [cc-logger](https://github.com/kkrlstrm/cc-logger),
-[wroteonly](https://github.com/kkrlstrm/wroteonly).
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
