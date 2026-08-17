@@ -1,10 +1,73 @@
-# abeyance — disposable agents, durable work
+# abeyance — bounded autonomy within declared reach
 
 Coordinate humans, machines, and models over days, weeks, or months without leaving one durable agent
 or workflow in charge of the work. A case is the durable record. Workers are short-lived,
 isolated specialists: they appear, contribute one typed fact, and disappear. Agents can be powered from API keys or your Anthropic/OpenAI subscriptions.
 
 > **Autonomous pathfinding within declared reach. Human-gated expansion. Durable work.**
+
+```bash
+pip install abeyance        # core has zero dependencies
+```
+
+> **abeyance**, *n.* — a state of temporary suspension; in law, a right that exists and is
+> currently held by nobody, pending determination. That is the mechanism exactly: the authority
+> to act is real, no process is holding it, and it resolves when the people with standing decide.
+
+## Three properties, and what backs each one
+
+**1. New behaviour is free. New reach costs a human.** A case can put a new instruction in the
+`spec` for any registered worker, and can derive new compositions of those workers. It cannot
+conjure a worker that reaches an undeclared system. That case becomes `BLOCKED`, reports the
+missing capability, and waits for a person to approve and mint it.
+
+> If you let a model generate a Dockerfile and auto-build-and-run it with no human in between,
+> you have built remote code execution with extra steps — the gate is not friction, it is the
+> entire security model.
+
+**2. The case can work out the path required to close itself.** The coordination graph is not
+fixed when a case opens. Evidence can warrant the next need; that contribution can warrant the
+one after it. The case follows this path one visible, bounded step at a time rather than forcing
+every possibility into a workflow diagram before work begins.
+
+> **Live run:** approved on pooled bounce of 1.04%; a sharper worker found one campaign at 3.29%
+> and superseded the coarse reading; `execute()` refused. The case then derived a segment
+> analysis, designed a narrower campaign, and demanded a fresh decision. Three steps nobody
+> planned. It shipped at 150 leads with a warm-up requirement instead of the 500 originally
+> approved. [Transcript](docs/SMOKE-RUN.md#the-recovery-test--the-facts-change-after-you-say-yes).
+
+### Isn't this a rule engine?
+
+It is also the exact place this design could quietly become a rule engine, and CMMN's grave is
+full of systems that did. So the model here is deliberately impoverished, and every limitation
+is load-bearing:
+
+- **A rule may only ADD a need.** It cannot retract one, cancel a request, modify another rule's
+  request, or set a priority. There is no agenda, no conflict resolution, no salience.
+- **Rules are pure and independent.** Each is `(CaseView) -> Sequence[Need]`, evaluated against
+  the whole current state. No rule sees another rule's output within a pass.
+- **Idempotence is structural, not the rule author's problem.** `derive()` drops any need that
+  already has a request.
+- **Chaining happens across ticks, not within one.** Evidence lands, the next tick derives from
+  it. The chain is bounded by real work completing, not by a fixpoint loop, and is observable one
+  step at a time in case history.
+- **The total is capped.** `CasePolicy.max_derived_requests` stops two rules that warrant each
+  other from spending money forever. Hitting the cap blocks the case loudly.
+
+If you find yourself needing retraction, priorities, or within-pass chaining, that is the signal
+to stop and reconsider rather than to grow this file. A workflow engine is the right tool for a
+process whose shape you actually know.
+
+**3. The work survives its workers — and their isolation.** Delete the process that opened the
+case, the worker apps, and even the library: the durable thing is state alone. A later program
+can read the case and re-derive its authority. The contributors do not need to survive to carry
+the work forward.
+
+> **Tested, not asserted.** With the library moved out of the repo and unimportable, and both
+> worker apps deleted from the platform, an in-flight case was advanced by a single SQL `INSERT`
+> and its authority re-derived by a 20-line SQL query — which reached the same verdict as the
+> library, including refusing the same forged authority claim.
+> [Transcript](docs/SMOKE-RUN.md#the-destruction-test).
 
 ```mermaid
 flowchart LR
@@ -50,43 +113,6 @@ It can use existing capabilities in new combinations, but cannot create a capabi
 reach: that blocks the case and asks a person. The case, its evidence, its authority, and its
 audit trail live outside every worker and every agent session.
 
-```bash
-pip install abeyance        # core has zero dependencies
-```
-
-> **abeyance**, *n.* — a state of temporary suspension; in law, a right that exists and is
-> currently held by nobody, pending determination. That is the mechanism exactly: the authority
-> to act is real, no process is holding it, and it resolves when the people with standing decide.
-
-## Three properties, and what backs each one
-
-**1. The case can work out the path required to close itself.** The coordination graph is not
-fixed when a case opens. Evidence can warrant the next need; that contribution can warrant the
-one after it. The case follows this path one visible, bounded step at a time rather than forcing
-every possibility into a workflow diagram before work begins.
-
-> **Live run:** approved on pooled bounce of 1.04%; a sharper worker found one campaign at 3.29%
-> and superseded the coarse reading; `execute()` refused. The case then derived a segment
-> analysis, designed a narrower campaign, and demanded a fresh decision. Three steps nobody
-> planned. It shipped at 150 leads with a warm-up requirement instead of the 500 originally
-> approved. [Transcript](docs/SMOKE-RUN.md#the-recovery-test--the-facts-change-after-you-say-yes).
-
-**2. New behaviour is free. New reach costs a human.** A case can put a new instruction in the
-`spec` for any registered worker, and can derive new compositions of those workers. It cannot
-conjure a worker that reaches an undeclared system. That case becomes `BLOCKED`, reports the
-missing capability, and waits for a person to approve and mint it.
-
-**3. The work survives its workers — and their isolation.** Delete the process that opened the
-case, the worker apps, and even the library: the durable thing is state alone. A later program
-can read the case and re-derive its authority. The contributors do not need to survive to carry
-the work forward.
-
-> **Tested, not asserted.** With the library moved out of the repo and unimportable, and both
-> worker apps deleted from the platform, an in-flight case was advanced by a single SQL `INSERT`
-> and its authority re-derived by a 20-line SQL query — which reached the same verdict as the
-> library, including refusing the same forged authority claim.
-> [Transcript](docs/SMOKE-RUN.md#the-destruction-test).
-
 ## The path stays bounded
 
 **A model cannot talk its way into authority.** Authority derives from a contribution's *type*
@@ -103,10 +129,21 @@ and the actor's *standing*. Never from the payload.
 > give you this: there, "approved" is a word somebody wrote and the next reader decides its
 > weight.
 
+Two guards exist for the same thing, on purpose. `Contribution.__post_init__` refuses to
+*construct* a worker `DECISION`, and `standing.py` refuses to *count* one. The second is the
+authoritative one: contributions are written by any process that can reach the store, including a
+shell script running raw SQL, so a check that only runs in the constructor is a check an attacker
+or a bug simply routes around. The expensive guard goes where the decision is made.
+
 **A yes does not survive the facts it was given for.** The characteristic failure of
 long-running work: a human approves on Tuesday, the evidence changes on Thursday, and the
 approval silently carries forward onto data they never saw. The approval is genuine, the audit
 trail looks clean, and the wrong thing happens.
+
+**Scope only narrows.** Numeric limits take the minimum, booleans take logical AND, lists
+intersect, and conflicting scalars keep the stricter reading. A scope that could widen by adding
+another contribution would be an escalation-of-privilege primitive, so the merge is deliberately
+one-directional.
 
 ## Two layers, either usable alone
 
