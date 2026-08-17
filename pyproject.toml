@@ -8,13 +8,14 @@ version = "0.2.1"
 description = "Durable cases for autonomous work: derive the next warranted task, gate new reach behind human approval, and execute only under current authority."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "AGPL-3.0-or-later" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Kai Karlstrom" }]
 keywords = ["durable-consent", "approval", "human-in-the-loop", "ai-agents", "agentic",
             "llm", "governance", "async-approval", "quorum", "unattended", "cron",
             "serverless", "batch", "guardrails", "hitl"]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Libraries",

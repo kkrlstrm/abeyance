@@ -534,12 +534,14 @@ provided (replay-based recovery, retry policies, exactly-once) and where those l
 
 ## Licence
 
-GNU AGPL-3.0-or-later — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-The network clause is deliberate and worth reading before you embed this: if you modify
-`abeyance` and offer it to users over a network, those users are entitled to your modified
-source. Using it unmodified inside your own service does not trigger that. Same licence as
-the other runtime-control repos in this line of work — [agent-guard](https://github.com/kkrlstrm/agent-guard),
+Permissive on purpose. This is meant to sit *inside* other people's control planes, and a
+copyleft licence is a procurement conversation rather than a `pip install` — several of the
+organisations most likely to need durable consent are the ones with a blanket ban on it. Embed it,
+modify it, ship it in a closed product; the patent grant is included and attribution is the only
+ask.
+
+Sibling repos in the same line of work: [agent-guard](https://github.com/kkrlstrm/agent-guard),
 [agent-tenancy](https://github.com/kkrlstrm/agent-tenancy), [cc-logger](https://github.com/kkrlstrm/cc-logger),
-[wroteonly](https://github.com/kkrlstrm/wroteonly) — because a control plane you cannot inspect
-is not a control plane.
+[wroteonly](https://github.com/kkrlstrm/wroteonly).
