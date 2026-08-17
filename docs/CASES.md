@@ -218,6 +218,53 @@ of long-running work is a human saying yes on Tuesday to evidence that changed o
 Superseding any live contribution invalidates it, which costs one tick and fails closed; the next
 tick re-derives and grants again if the case still holds.
 
+A **delegated** decision (`policy_decision`) is stamped with its dependencies exactly as a
+harvested human one is, so it expires against changing facts too. Without that, "pre-cleared
+because suppression is verified" would keep clearing after suppression stopped being verified — the
+rule fired once, on one reading, and nothing re-evaluates it. A delegation is a standing
+instruction, not a standing exemption.
+
+## Polling an artifact: asking a fact again
+
+Half the waiting in real work is not waiting for a *decision*. It is waiting for a thing to exist —
+a list filling in a vendor's UI, a document someone is writing, an invoice clearing, a bridge being
+built. Nobody should be nagged for those, because they are observable: look again.
+
+Rules cannot express that. A rule may only ADD a need, and `derive()` drops any need that already
+has a request — so a rule that fires on every tick is a no-op after the first, by design. Re-asking
+is not a new need; it is the same need at a later time. So it is an explicit act:
+
+```python
+cases.reprobe(case_id, "list-readiness",
+              spec={"previous": last_reading, "check": n + 1},
+              because="hourly poll while the bridge fills")
+```
+
+What makes it honest rather than a status reset:
+
+**`armed_at`.** Only a contribution created at or after the moment of re-arming settles the
+request. Without that field the whole thing would be a quiet no-op — the previous run's row is
+still in the store under the same request id, so the next tick would read it as an answer, mark the
+request satisfied, and never start a container. The case would report a fresh reading it never
+took: a stale fact wearing a current timestamp.
+
+**The old reading survives.** The worker writes its new contribution with `supersedes` set, so both
+rows persist. Anything decided on the old reading goes stale rather than silently transferring onto
+the new one.
+
+**Authority is withdrawn the moment the probe opens** — not when the new reading disagrees. Between
+"we decided to look again" and "we know what we saw" there is no current reading, so the case is
+not authorized and nothing can be spent in that window.
+
+**Facts only.** Re-probing a request whose `expects` is `DECISION` is refused: a machine re-arming
+a person's yes would discard it silently. When a decision genuinely must be taken again, supersede
+the evidence it rested on — the decision stays on the record and visibly stops counting. An
+external need is refused too; it has no worker to re-run, and it is a wait, not a probe.
+
+**Cadence is the caller's.** Each probe costs a dispatch, and attempts reset. `Case.context` is the
+natural place to record when the last one was taken. This is the one thing here the library does
+not bound for you, and a poll loop with no interval is a spend loop.
+
 ## The worker contract and the real isolation boundary
 
 Everything a worker gets. Small on purpose — it needs to know which case and request it is

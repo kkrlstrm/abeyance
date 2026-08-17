@@ -279,6 +279,67 @@ class CaseLoop:
         self.save(case)
         return case
 
+    def reprobe(self, case_id: str, need: str, *, spec: Optional[Dict[str, Any]] = None,
+                because: str = "") -> Case:
+        """Ask a *fact* again. Re-arms one satisfied request so its worker runs a second time.
+
+        This is the mechanism behind "poll for artifacts; ask only for authority". A case can wait
+        days on something a human is building elsewhere — a list filling in a vendor's UI, a
+        document being written, an invoice being paid — and the honest way to learn it is done is
+        to look again. Rules cannot express that: a rule may only ADD a need, and re-asking is not
+        a new need, it is the same need at a later time. So it lives here, as an explicit act by
+        whatever is driving the clock.
+
+        Three constraints, each load-bearing:
+
+        **Facts only.** A request whose `expects` is `DECISION` is refused. Re-arming a human's
+        decision would silently discard it and re-open the question — and worse, it would be a
+        *machine* deciding a human's yes no longer counts. When a decision genuinely must be taken
+        again, the honest path is superseding the evidence it rested on, which makes it go stale
+        and be visibly not counted (`standing.authorize`). Nothing gets erased.
+
+        **The old reading survives.** Re-probing does not delete the previous contribution. The
+        worker writes the new one with `supersedes` set, so both rows persist and any decision
+        resting on the old reading goes stale rather than silently applying to a world that moved.
+        `armed_at` is what makes the new row necessary: until one arrives that is newer than this
+        moment, the request is outstanding.
+
+        **It costs a dispatch.** Attempts reset, so a probe that has been failing gets its full
+        allowance again. That is correct — the previous failure was about the previous world — but
+        it means an unbounded caller can spend unboundedly. Cadence belongs to the caller;
+        `Case.context` is the natural place to record when the last probe was taken.
+        """
+        case = self.get(case_id)
+        req = case.request_for_need(need)
+        if req is None:
+            raise ConfigurationError(f"case {case_id} has no request for need {need!r}")
+        if req.expects is ContributionKind.DECISION:
+            raise ConfigurationError(
+                f"{need!r} expects a DECISION and cannot be re-probed. Re-asking a person is "
+                "ask_humans(); making an existing yes stop counting is superseding the evidence "
+                "it rested on, which leaves the record intact and visibly stale.")
+        if not req.capability:
+            raise ConfigurationError(
+                f"{need!r} is answered out of band and has no capability to re-run. An external "
+                "need is a wait, not a probe — poll with a need that has a worker.")
+
+        now = self._now()
+        was = req.status
+        req.status = RequestStatus.REQUESTED
+        req.armed_at = now
+        req.attempts = 0
+        req.dispatched_epoch = 0
+        req.lease_expires_epoch = 0
+        req.machine_ref = ""
+        req.last_error = ""
+        if spec is not None:
+            req.spec = dict(spec)
+        case.log("reprobed", request=req.id, need=need, was=was.value, because=because[:200])
+        case.touch(now)
+        self.save(case)
+        log.info("reprobe %s %s (was %s)", case_id, need, was.value)
+        return case
+
     # ----------------------------------------------------------------- contributing
 
     def contribute(
@@ -352,7 +413,27 @@ class CaseLoop:
             case_id, kind=ContributionKind.DECISION,
             actor=Actor.policy(rule, standing=standing), request_id=request_id,
             summary=summary or f"delegated decision by {rule}", payload=body,
+            # Stamped with the facts it rested on, exactly as a harvested human decision is.
+            # Without this a delegation could never go stale, and "pre-cleared because
+            # suppression is verified" would keep clearing after suppression stopped being
+            # verified — the rule fired once, on one reading, and nothing re-evaluates it. A
+            # delegated yes has to expire against changing facts for the same reason a person's
+            # does; it is a standing instruction, not a standing exemption.
+            dependencies=self._rested_on(case_id),
             provenance={"delegated": True, "rule": rule}, _allow_decision=True)
+
+    def _rested_on(self, case_id: str) -> List[str]:
+        """The LIVE facts a decision taken right now is resting on.
+
+        Live means not superseded by something newer. The subtle error is filtering on
+        `not c.supersedes` — that keeps the OLD reading and drops the revision, so every decision
+        made after a supersession is born stale and the case can never recover. What matters is
+        whether a fact HAS BEEN superseded, not whether it superseded something.
+        """
+        all_contributions = self.contributions(case_id)
+        superseded_ids = {c.supersedes for c in all_contributions if c.supersedes}
+        return sorted(c.id for c in all_contributions
+                      if c.kind is not ContributionKind.DECISION and c.id not in superseded_ids)
 
     # ----------------------------------------------------------------- humans
 
@@ -447,16 +528,7 @@ class CaseLoop:
         # and stop counting it. Without it, an approval silently transfers onto evidence the
         # person never saw: the approval is genuine, the audit trail looks clean, and what they
         # approved is not what happens.
-        # LIVE facts, i.e. those not superseded by something newer. The subtle error here is
-        # filtering on `not c.supersedes` — that keeps the OLD reading and drops the revision,
-        # so every decision made after a supersession would be born stale and the case could
-        # never recover. What matters is whether a fact HAS BEEN superseded, not whether it
-        # superseded something.
-        all_contributions = self.contributions(case.id)
-        superseded_ids = {c.supersedes for c in all_contributions if c.supersedes}
-        rested_on = sorted(c.id for c in all_contributions
-                           if c.kind is not ContributionKind.DECISION
-                           and c.id not in superseded_ids)
+        rested_on = self._rested_on(case.id)
 
         out: List[Contribution] = []
         for address, approver in sorted(proposal.approvers.items()):
@@ -698,6 +770,18 @@ class CaseLoop:
                 # value here would be the "looks healthy, going nowhere" failure again.
                 self._raise(Escalation.STALE_AUTHORITY, case, [],
                             f"refused to act: {auth.reason}")
+            # And the row must stop claiming authority it does not have. A refusal here used to
+            # return without saving, so a case that had reached AUTHORIZED kept that label until
+            # something happened to tick it again — and if nothing did, every reader of the store
+            # saw a case cleared to act that this method would refuse. The label has to match what
+            # execute() would actually do, at the moment it declines to do it.
+            if case.status is CaseStatus.AUTHORIZED:
+                case.status = (CaseStatus.BLOCKED if (auth.stale_decisions or auth.conflicting)
+                               else CaseStatus.OPEN)
+                case.log("status", was=CaseStatus.AUTHORIZED.value, now=case.status.value,
+                         why=f"refused at commit time: {auth.reason[:160]}")
+                case.touch(now)
+                self.save(case)
             if strict:
                 raise NotAuthorized(f"{case.id}: {auth.reason}")
             return CaseExecution(case_id=case.id, blocked=auth.reason, dry_run=dry_run)

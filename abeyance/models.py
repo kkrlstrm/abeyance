@@ -690,6 +690,18 @@ class ContributionRequest:
     "we could not gather the evidence, so we proceeded without it" is the failure this whole
     layer exists to prevent."""
 
+    armed_at: int = 0
+    """Only a contribution created at or after this moment settles the request.
+
+    `0` for the ordinary request, asked once and answered once. It exists for the *re-probed*
+    request — a fact that can change, checked again (`CaseLoop.reprobe`). Without it, re-arming
+    would be pointless and quietly so: the previous run's contribution still sits in the store
+    under the same request id, so the next tick would read it as already answered, mark the
+    request satisfied, and never start a container. The case would then report a fresh reading it
+    never took — a stale fact wearing a current timestamp, which is the exact failure this
+    library exists to prevent.
+    """
+
     @property
     def is_outstanding(self) -> bool:
         return self.status in (RequestStatus.REQUESTED, RequestStatus.DISPATCHED)
@@ -706,7 +718,8 @@ class ContributionRequest:
                 "attempts": self.attempts, "dispatched_epoch": self.dispatched_epoch,
                 "lease_expires_epoch": self.lease_expires_epoch,
                 "machine_ref": self.machine_ref, "last_error": self.last_error,
-                "warranted_by": self.warranted_by, "optional": self.optional}
+                "warranted_by": self.warranted_by, "optional": self.optional,
+                "armed_at": self.armed_at}
 
     @classmethod
     def from_doc(cls, d: Dict[str, Any]) -> "ContributionRequest":
@@ -718,7 +731,8 @@ class ContributionRequest:
                    dispatched_epoch=int(d.get("dispatched_epoch") or 0),
                    lease_expires_epoch=int(d.get("lease_expires_epoch") or 0),
                    machine_ref=d.get("machine_ref", ""), last_error=d.get("last_error", ""),
-                   warranted_by=d.get("warranted_by", ""), optional=bool(d.get("optional")))
+                   warranted_by=d.get("warranted_by", ""), optional=bool(d.get("optional")),
+                   armed_at=int(d.get("armed_at") or 0))
 
 
 # --------------------------------------------------------------------------- authorization

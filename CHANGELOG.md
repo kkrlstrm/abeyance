@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.1 — unreleased
+
+**Polling an artifact, as a first-class act.** The case layer's stated principle is "poll for
+artifacts; ask only for authority", and nothing implemented the polling half. `CaseLoop.reprobe()`
+re-arms one satisfied evidence request so its worker runs again — for a case waiting hours or days
+on a list filling in a vendor's UI, a document being written, an invoice clearing.
+
+- `ContributionRequest.armed_at` is what makes it real rather than a status reset: only a
+  contribution created at or after the re-arming settles the request. Without it, re-arming is a
+  silent no-op — the previous run's row is still under the same request id, so the next tick reads
+  it as an answer and never starts a container, and the case reports a reading it never took.
+- Re-probing withdraws authority immediately, before the new reading arrives. Nothing can be spent
+  between "look again" and "we know what we saw".
+- Refused for a `DECISION` (a machine must not re-arm a person's yes — supersede the evidence
+  instead, which leaves the record intact and visibly stale) and for an external need (no worker to
+  re-run; a wait is not a probe).
+
+**Two holes found by writing those tests, both of the quiet kind:**
+
+- A **delegated decision never went stale.** `policy_decision` stamped no `dependencies`, so
+  "pre-cleared because suppression is verified" kept clearing after suppression stopped being
+  verified. The rule fired once, on one reading, and nothing re-evaluated it. Delegated decisions
+  are now stamped exactly as harvested ones are.
+- **A refusal at commit time left the row claiming `AUTHORIZED`.** The stale-decision path returned
+  without saving, so a case that had reached AUTHORIZED kept that label until something ticked it
+  again — and if nothing did, every reader of the store saw a case cleared to act that `execute()`
+  would refuse. The label now matches what `execute()` would actually do.
+
+304 tests.
+
 ## 0.2.0 — unreleased
 
 **The case layer.** The approval layer detaches consent from the runtime that asked for it; this
