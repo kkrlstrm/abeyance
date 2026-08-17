@@ -160,14 +160,26 @@ class ClearanceRegistry:
     scanning for whatever models happen to be reachable. The review is the product.
     """
 
-    def __init__(self, clearances: Iterable[ModelClearance] = ()) -> None:
+    def __init__(self, clearances: Iterable[ModelClearance] = (),
+                 retired: Optional[Dict[str, str]] = None) -> None:
         self._by_mode: Dict[str, ModelClearance] = {}
+        self.retired: Dict[str, str] = dict(retired or {})
+        """`{mode: why}` for modes that were cleared once and are not any more.
+
+        Kept rather than deleted so `require()` can refuse by name *with the reason*. An unknown
+        mode and one disqualified for cause are different facts, and collapsing them into "unknown
+        mode" is how something that failed an eval gets quietly re-added by someone who never saw
+        the result."""
         for c in clearances:
             self.add(c)
 
     def add(self, clearance: ModelClearance) -> "ClearanceRegistry":
         if clearance.mode in self._by_mode:
             raise ConfigurationError(f"clearance {clearance.mode!r} is already registered")
+        if clearance.mode in self.retired:
+            raise ConfigurationError(
+                f"clearance {clearance.mode!r} is also listed as retired ({self.retired[clearance.mode]}) "
+                "— a mode cannot be simultaneously cleared and disqualified. Remove it from one.")
         self._by_mode[clearance.mode] = clearance
         return self
 
@@ -189,6 +201,10 @@ class ClearanceRegistry:
         so a caller that wants expiry enforced passes the date it already has. Omitting it is a
         deliberate choice to trust the declaration, not an oversight the module papers over.
         """
+        if mode in self.retired:
+            raise NotCleared(
+                f"mode {mode!r} was retired: {self.retired[mode]} Retired modes are refused by "
+                f"name, not forgotten — re-clearing one needs a passing eval.")
         c = self._by_mode.get(mode)
         if c is None:
             raise NotCleared(
@@ -263,3 +279,67 @@ def model_capability(clearances: ClearanceRegistry, *, mode: str, name: str,
         merged["MODEL_PROVIDER"] = c.provider
     return Capability(name=name, image=image, produces=tuple(produces), emits=emits,
                       reach=tuple(reach), app=app, env=merged, **kw)
+
+
+# --------------------------------------------------------------------------- loading a declaration
+
+
+def unmapped_modes(spec: Dict[str, Any], kind_map: Dict[str, Sequence[ContributionKind]]
+                   ) -> List[str]:
+    """Modes present in the allowlist with no contribution kind assigned. Report these."""
+    return sorted(set((spec.get("modes") or {})) - set(kind_map))
+
+
+def from_allowlist(spec: Dict[str, Any],
+                   kind_map: Dict[str, Sequence[ContributionKind]],
+                   *, default_stale_after_days: int = DEFAULT_STALE_AFTER_DAYS
+                   ) -> ClearanceRegistry:
+    """Turn an eval-gated model allowlist into a `ClearanceRegistry`.
+
+    Provider-agnostic: nothing here knows about any particular routing vendor. The input is any
+    dict of the shape
+
+        {"staleness_warn_days": 120,                         # optional
+         "modes": {"<mode>": {"model": "...",                 # required
+                              "verified_date": "YYYY-MM-DD",  # required
+                              "evidence_ref": "...",          # strongly recommended
+                              "provider": "..." | {"order": [...]},
+                              "do_not_use_when": "...",       # or "purpose"
+                              "stale_after_days": 90}},
+         "retired": {"<mode>": "why it was disqualified"}}    # optional
+
+    which is what most routing allowlists already look like — so the file you already maintain
+    stays the single source of truth and this reads it rather than duplicating it.
+
+    `kind_map` is deliberately a separate argument, and deliberately hand-written: **a mode absent
+    from it gets no clearance.** Adding a routing mode must not silently grant it a contribution
+    kind — somebody has to decide whether a new model produces facts or opinions, and that decision
+    should appear in a diff next to its reasoning. Call `unmapped_modes()` to find omissions.
+    """
+    default_stale = int(spec.get("staleness_warn_days") or default_stale_after_days)
+
+    retired_raw = spec.get("retired") or {}
+    retired = {m: (v if isinstance(v, str) else str((v or {}).get("reason") or "retired"))
+               for m, v in retired_raw.items()}
+
+    reg = ClearanceRegistry(retired=retired)
+    for mode, entry in (spec.get("modes") or {}).items():
+        kinds = tuple(kind_map.get(mode) or ())
+        if not kinds:
+            continue
+        provider = entry.get("provider")
+        if isinstance(provider, dict):
+            order = provider.get("order") or [""]
+            provider = order[0] if order else ""
+        notes = entry.get("do_not_use_when") or entry.get("purpose") or ""
+        reg.add(ModelClearance(
+            mode=mode,
+            model=entry["model"],
+            emits=kinds,
+            evidence_ref=entry.get("evidence_ref") or "",
+            verified_date=entry["verified_date"],
+            provider=provider or "",
+            stale_after_days=int(entry.get("stale_after_days") or default_stale),
+            notes=f"do_not_use_when: {notes}" if notes else "",
+        ))
+    return reg

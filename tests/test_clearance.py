@@ -186,3 +186,29 @@ def test_model_capability_enforces_staleness_when_asked():
         model_capability(reg, mode="extract-accurate", name="extract",
                          produces=("extracted-fields",), emits=EVIDENCE,
                          image="python:3.12-slim", app="workers-extract", today="2026-08-17")
+
+
+# --------------------------------------------------------------------------- the env contract
+
+
+def test_the_worker_contract_separates_store_kind_from_contribution_kind():
+    """Regression: these two are easy to swap, and swapping them fails silently.
+
+    `ABEYANCE_CONTRIBUTION_KIND` is the STORE kind to write under (`<loop>:contribution`);
+    `ABEYANCE_EXPECTS` is the contribution kind (`evidence` | `recommendation`). A worker that
+    writes its row under the wrong store kind produces no error anywhere — the request stays
+    in-flight until its lease expires and is then declared lost, which looks exactly like a worker
+    that never booted. Both shipped examples got this backwards once; nothing failed loudly.
+    """
+    from abeyance import CaseLoop
+    from abeyance.adapters import MemoryStore
+
+    loop = CaseLoop("launches", store=MemoryStore())
+    kind_values = {k.value for k in ContributionKind}
+
+    assert loop.contribution_kind == "launches:contribution"
+    assert loop.kind == "launches:case"
+    # The invariant: the store kind is namespaced and is never a ContributionKind value, so the
+    # two can never be used interchangeably by accident without this assertion firing.
+    assert loop.contribution_kind not in kind_values
+    assert kind_values == {"evidence", "recommendation", "decision"}

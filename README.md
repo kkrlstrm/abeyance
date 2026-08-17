@@ -97,6 +97,32 @@ form an opinion here?" the way `reach_report()` answers "what can touch producti
 The sentence worth having: *we know how good this model is at this exact task, we know which kind
 of contribution that clearance covers, and it still cannot approve anything.*
 
+**Declaring one.** There are no clearances by default, and `require()` refuses everything until you
+add one — that failure is the product, because nobody can record an eval on your behalf. Either
+declare them directly or point `from_allowlist()` at a routing allowlist you already maintain:
+
+```python
+from abeyance import ContributionKind, from_allowlist
+
+CLEARANCES = from_allowlist(
+    json.load(open("routes.json")),          # {"modes": {"<mode>": {"model", "verified_date", ...}}}
+    {"extract-accurate": (ContributionKind.EVIDENCE,)},   # the kind map — written by hand
+)
+```
+
+The kind map is the one thing you must write yourself, and a mode missing from it gets **no**
+clearance: adding a routing mode must not silently grant it a contribution kind. Retired modes stay
+in the file with the reason they were disqualified, so `require()` refuses them by name rather than
+reporting "unknown mode" — which is how something that failed an eval gets quietly re-added a year
+later. [`examples/openrouter_clearances.py`](examples/openrouter_clearances.py) is a worked example
+against a real allowlist, including the finding that fell out of mapping it.
+
+**The worker contract**, since both shipped workers got one line of it wrong once:
+`ABEYANCE_CONTRIBUTION_KIND` is the *store* kind to write under, and `ABEYANCE_EXPECTS` is
+`evidence` | `recommendation`. Writing a row under the wrong store kind raises nothing anywhere —
+the request stays in-flight until its lease expires and is then declared lost, which looks exactly
+like a worker that never booted.
+
 ## A yes does not survive the facts it was given for
 
 The characteristic failure of long-running work: a human approves on Tuesday, the evidence changes
@@ -152,7 +178,7 @@ because scope is the intersection of what every contributor asserted, and only e
 | **[Approval](#the-60-second-version)** | Durable multi-party consent for cron, serverless and batch agents. Five verdicts, deadlock that refuses to pick a side, partial answers that do not strand the batch, receipts. |
 | **[Cases](docs/CASES.md)** | A durable case that can derive its next warranted work. Typed contributions, human-gated capability expansion, policy-derived scoped authority, and one ephemeral worker per contribution. |
 
-**324 tests, no network, no credentials.** Plus three live runs against real infrastructure that
+**335 tests, no network, no credentials.** Plus three live runs against real infrastructure that
 found nine bugs the suite did not — each now pinned by a test, each written up in
 [`docs/SMOKE-RUN.md`](docs/SMOKE-RUN.md) rather than quietly fixed.
 
@@ -305,7 +331,17 @@ pip install -e ".[dev]" && python -m pytest -q
 python examples/01_single_approver.py              # the whole library in 40 lines
 python examples/02_two_approvers_and_a_deadlock.py # two people, one disagreement
 python examples/03_scheduled_worker.py             # the production cron shape
+python examples/04_local_case.py                   # a whole CASE — no Postgres, no containers
 ```
+
+`04_local_case.py` is the one to run if you want to see the case layer work before deciding
+whether to stand any infrastructure up. It uses `JSONFileStore` and `LocalProcessRunner`, so the
+only dependency is abeyance itself, and it walks the whole arc: a case opens needing evidence, a
+worker subprocess writes it, a rule derives a second need nobody planned, a worker returns a
+payload *claiming approval* and is refused with `AUTHORITY_CLAIMED`, a decider with standing
+grants authority, and `execute()` acts once under a scope narrowed to what every contributor
+allowed. Two things it deliberately does not fake: `LocalProcessRunner` is not isolated, and
+`JSONFileStore` has no atomic claims — both are stated in the file rather than glossed.
 
 ## What it actually gets right
 

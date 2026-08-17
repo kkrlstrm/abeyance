@@ -51,7 +51,8 @@ Quickstart:
 from __future__ import annotations
 
 from .capability import Capability, CapabilityRegistry
-from .clearance import (ClearanceRegistry, ModelClearance, model_capability)
+from .clearance import (ClearanceRegistry, ModelClearance, from_allowlist,
+                        model_capability, unmapped_modes)
 from .cases import (HUMAN_DECISION, CaseExecution, CaseExecutor, CaseLoop, TickReport)
 from .claims import ClaimedExecution, claimed, execute_claimed
 from .cursor import Cursor, CursorRun, DueGate, DueVerdict, TriggerResult
@@ -108,6 +109,7 @@ __all__ = [
     "Capability", "CapabilityRegistry",
     # clearance (which model may contribute which KIND, and on what evidence)
     "ModelClearance", "ClearanceRegistry", "model_capability",
+    "from_allowlist", "unmapped_modes",
     # standing (the authority math)
     "authorize", "counts_as_decision", "narrow_scope", "Authority",
     # warrant (dynamic activity selection)

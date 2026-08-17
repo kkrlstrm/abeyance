@@ -1,137 +1,117 @@
-"""Bridge: an existing eval-gated routing allowlist becomes a clearance registry.
+"""Point abeyance at an eval-gated routing allowlist you already maintain.
 
-`abeyance/clearance.py` says a model is cleared for specific contribution *kinds*, on recorded
-evidence. It does not say where that evidence lives. This module wires one real allowlist —
-`~/openrouter-test/routes.json`, an eval-gated model-routing policy — into a `ClearanceRegistry`,
-so the two halves compose instead of duplicating each other:
+`abeyance.clearance.from_allowlist()` does the work; this file is the thin glue plus a worked
+example of the one thing you have to write yourself — the **kind map**.
 
-    routes.json  (the measurement: which model, scored how, verified when)
-         │
-         ▼
-    ClearanceRegistry  (the permission: which CONTRIBUTION KIND that score covers)
-         │
-         ▼
-    model_capability()  (refuses a mis-kinded capability at registry-build time)
+    export ABEYANCE_ROUTES_JSON=~/openrouter-test/routes.json
+    python examples/openrouter_clearances.py
 
-**routes.json stays the single source of truth.** It is read live when present, and an embedded
-snapshot carries the policy when it is not (a distributed copy, a container, CI). `routes_consistency()`
-asserts the two never drift — a fallback that can silently disagree with canonical is worse than no
-fallback, because it fails in the direction of permitting more.
+## The default is empty, and that is deliberate
 
-## The finding, which is the interesting part
+With no allowlist configured you get **zero clearances**, and every `require()` raises
+`NotCleared`. That failure is the product: a clearance asserts *"a recorded eval says this model is
+good enough at this task"*, and nobody can make that claim on your behalf. A library that shipped a
+populated registry would be handing you somebody else's measurements to rely on.
 
-Mapping the allowlist onto contribution kinds surfaced something the routing file could not say:
-**every mode is EVIDENCE except `lint-code`, and none is cleared for a RECOMMENDATION on a
-consequential action.** That is not an oversight. The policy behind routes.json explicitly
-disqualifies drafting, single-row classification with consequences, primary architecture/security
-review, and positioning critique from delegation — so what remains, by construction, is extraction,
-filtering, digest, and vision. It has been an evidence allowlist from the start; the clearance layer
-is just the first thing to name it.
+`SAMPLE_ROUTES` below is a real allowlist, and it is **not yours**. Its `evidence_ref` values point
+at eval runs in a private repo you cannot open. It exists to show the shape and to let the tests
+run hermetically. Reading it is useful; inheriting it is not — so it loads only when you ask:
 
-The consequence is a clean split, and it is the one the case layer wants anyway:
+    ABEYANCE_USE_SAMPLE_ALLOWLIST=1 python examples/openrouter_clearances.py
 
-    EVIDENCE        cheap, metered, eval-gated       → the OpenRouter rungs below
-    RECOMMENDATION  the orchestrator tier            → ORCHESTRATOR_CLEARANCES below
+## What you write: the kind map
 
-routes.json governs delegation *away from* the orchestrator, so it contains no entry for the
-orchestrator itself. The judgment clearance is therefore declared here, separately, and points at
-its own eval — not at routes.json, which has nothing to say about it.
+One line per mode, plus why. An eval clears a model for a *task*; the task decides whether the
+output is a fact or an opinion, and only you know which. A mode missing from the map gets no
+clearance at all — adding a routing mode must not silently grant it a contribution kind.
+
+The sample map below has a finding baked into it worth noticing: **every mode is EVIDENCE except
+the linter.** That is not a coincidence — the policy behind that allowlist already disqualifies
+drafting, consequential single-row classification, primary review and positioning critique from
+delegation, so what survives is extraction, filtering, digest and vision: assertions about the
+world. It had been an evidence allowlist all along and nothing had a word for it.
 """
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from abeyance import ContributionKind
+from abeyance import ContributionKind, from_allowlist, unmapped_modes
 from abeyance.clearance import ClearanceRegistry, ModelClearance
-from abeyance.errors import NotCleared
 
 EVIDENCE = ContributionKind.EVIDENCE
 RECOMMENDATION = ContributionKind.RECOMMENDATION
 
-ROUTES_PATH = Path(os.environ.get(
-    "ABEYANCE_ROUTES_JSON", Path.home() / "openrouter-test" / "routes.json"))
+ROUTES_PATH = Path(os.environ["ABEYANCE_ROUTES_JSON"]) if os.environ.get(
+    "ABEYANCE_ROUTES_JSON") else None
+
+USE_SAMPLE = os.environ.get("ABEYANCE_USE_SAMPLE_ALLOWLIST") == "1"
 
 # --------------------------------------------------------------------------- the kind map
-#
-# The one judgement call in this file, so it is explicit rather than inferred, with the reasoning
-# recorded per mode. A mode absent from this map has no clearance — adding a routing mode does NOT
-# silently grant it a contribution kind, which is the whole point of keeping the map by hand.
 
-KIND_FOR: Dict[str, Tuple[ContributionKind, ...]] = {
+KIND_FOR: Dict[str, Sequence[ContributionKind]] = {
     # Assertions about the world: what a field says, what a document contains, what a page shows.
-    # None of these form an opinion about what to do, so none can be a RECOMMENDATION.
+    # None of these forms an opinion about what to *do*, so none can be a RECOMMENDATION.
     "extract-bulk":        (EVIDENCE,),
     "extract-accurate":    (EVIDENCE,),
     "extract-multimodal":  (EVIDENCE,),
     "digest-longcontext":  (EVIDENCE,),
 
-    # A binary autoresponder/OOO classification is still an assertion about a message, not a
-    # judgment about an action. Its own do_not_use_when bars multi-class and intent detection.
+    # A binary autoresponder/OOO call is still an assertion about a message, not a judgment about
+    # an action — and its own do_not_use_when bars multi-class and intent detection.
     "filter-auto-reply":   (EVIDENCE,),
 
-    # The one RECOMMENDATION in the allowlist. A supplemental linter produces judgment without
-    # authority — CASES.md names "a security review" as exactly that — and its own routing entry
-    # says findings MUST be re-evaluated before action and it is never the primary review. That is
-    # the definition of a recommendation, so it is cleared as one and cannot be read as fact.
+    # The one RECOMMENDATION. A supplemental linter is judgment without authority — CASES.md names
+    # "a security review" as exactly that — and its routing entry says findings MUST be
+    # re-evaluated before action and it is never the primary review. Clearing it as EVIDENCE would
+    # launder an opinion into a fact.
     "lint-code":           (RECOMMENDATION,),
 }
 
-# --------------------------------------------------------------------------- embedded snapshot
-#
-# Mirrors the canonical file so the policy travels with a copy that ships without it. Keep in step
-# with routes.json; `routes_consistency()` fails loudly when it drifts.
+# --------------------------------------------------------------------------- SAMPLE — not yours
 
-EMBEDDED_ROUTES: Dict[str, Any] = {
+SAMPLE_ROUTES: Dict[str, Any] = {
     "staleness_warn_days": 120,
     "modes": {
         "extract-bulk": {
-            "model": "qwen/qwen3-235b-a22b-2507", "provider": None,
-            "verified_date": "2026-05-18",
-            "evidence_ref": "OBSERVATIONS.md 'Eval 1' (2026-05-18)",
-            "do_not_use_when": "Operator will read a single output row and make a decision from "
-                               "it. ~20% disagreement with the orchestrator on judgment-laden "
-                               "fields.",
+            "model": "qwen/qwen3-235b-a22b-2507", "verified_date": "2026-05-18",
+            "evidence_ref": "SAMPLE — private OBSERVATIONS.md 'Eval 1'",
+            "do_not_use_when": "An operator reads a single output row and decides from it; ~20% "
+                               "disagreement with the orchestrator on judgment-laden fields.",
         },
         "filter-auto-reply": {
-            "model": "google/gemini-2.5-flash-lite", "provider": None,
-            "verified_date": "2026-05-18",
-            "evidence_ref": "OBSERVATIONS.md 'Eval 6' (2026-05-18)",
-            "do_not_use_when": "Any multi-class classification, intent detection, or judgment "
-                               "task.",
+            "model": "google/gemini-2.5-flash-lite", "verified_date": "2026-05-18",
+            "evidence_ref": "SAMPLE — private OBSERVATIONS.md 'Eval 6'",
+            "do_not_use_when": "Any multi-class classification, intent detection, or judgment.",
         },
         "lint-code": {
-            "model": "mistralai/codestral-2508", "provider": None,
-            "verified_date": "2026-05-18",
-            "evidence_ref": "OBSERVATIONS.md 'Eval 4' (2026-05-18)",
+            "model": "mistralai/codestral-2508", "verified_date": "2026-05-18",
+            "evidence_ref": "SAMPLE — private OBSERVATIONS.md 'Eval 4'",
             "do_not_use_when": "The primary architecture/security review — it missed a SQL "
                                "injection the orchestrator caught in real production code.",
         },
         "digest-longcontext": {
-            "model": "deepseek/deepseek-v4-flash", "provider": None,
-            "verified_date": "2026-06-04",
-            "evidence_ref": "OBSERVATIONS.md 'Eval 2b' (2026-06-04)",
+            "model": "deepseek/deepseek-v4-flash", "verified_date": "2026-06-04",
+            "evidence_ref": "SAMPLE — private OBSERVATIONS.md 'Eval 2b'",
             "do_not_use_when": "A high-stakes irreversible decision with no human review.",
         },
         "extract-accurate": {
-            "model": "deepseek/deepseek-v4-flash", "provider": None,
-            "verified_date": "2026-06-04",
-            "evidence_ref": "OBSERVATIONS.md 'Eval 1b' (2026-06-04)",
+            "model": "deepseek/deepseek-v4-flash", "verified_date": "2026-06-04",
+            "evidence_ref": "SAMPLE — private OBSERVATIONS.md 'Eval 1b'",
             "do_not_use_when": "Maximum-throughput synchronous batches, and single-row decisions "
-                               "a human acts on directly.",
+                               "acted on directly.",
         },
         "extract-multimodal": {
-            "model": "minimax/minimax-m3", "provider": None,
-            "verified_date": "2026-06-25",
-            "evidence_ref": "OBSERVATIONS.md 'Eval 8' (2026-06-25)",
-            "do_not_use_when": "The page is text-extractable, or a per-row value is acted on "
-                               "without a never-invent-a-value verify.",
+            "model": "minimax/minimax-m3", "verified_date": "2026-06-25",
+            "evidence_ref": "SAMPLE — private OBSERVATIONS.md 'Eval 8'",
+            "do_not_use_when": "The page is text-extractable, or a per-row value is used without "
+                               "a never-invent-a-value verify.",
         },
     },
-    # Retired with a dated reason, never silently deleted — so a request for one is refused with
-    # the reason rather than a bare "unknown mode", and nobody re-adds it by accident.
+    # Retired with the reason, never deleted — so a request for one is refused by name.
     "retired": {
         "free": "Routed to non-web models that hallucinate on current events.",
         "qwen": "Replaced by `extract-bulk` with explicit use-case constraints.",
@@ -143,24 +123,24 @@ EMBEDDED_ROUTES: Dict[str, Any] = {
     },
 }
 
-# --------------------------------------------------------------------------- orchestrator tier
+# --------------------------------------------------------------------------- the orchestrator tier
 #
-# NOT from routes.json, which governs delegation away from the orchestrator and therefore has no
-# entry for it. Declared here so the RECOMMENDATION that actually carries a case is as reviewable
-# as the cheap rungs — and so `evidence_ref` points at a real run before you trust it.
+# A routing allowlist governs delegation *away from* the orchestrator, so it holds no entry for the
+# orchestrator itself — yet that is the tier that actually carries a case's judgment. Declare it
+# yourself, and point evidence_ref at a run you actually have.
 
 ORCHESTRATOR_CLEARANCES: List[ModelClearance] = [
     ModelClearance(
         mode="case-recommendation",
         model="claude-opus-5",
         emits=(RECOMMENDATION,),
-        evidence_ref="evals/case-recommendation.md — verdicts vs recorded human decisions "
-                     "(REPLACE with your own recorded run before relying on this)",
+        evidence_ref="REPLACE ME — evals/case-recommendation.md, verdicts vs recorded human "
+                     "decisions. This is the one clearance that carries a case; do not rely on "
+                     "it until it cites a run you can open.",
         verified_date="2026-08-17",
-        stale_after_days=120,
         notes="Judgment on a consequential action, reviewed by a human before anything executes. "
               "Runs on a subscription credential via the Claude Code CLI, so it is flat-rate "
-              "rather than metered. NOT for bulk extraction — the expensive way to read a page.",
+              "rather than metered. NOT for bulk extraction.",
     ),
 ]
 
@@ -168,126 +148,97 @@ ORCHESTRATOR_CLEARANCES: List[ModelClearance] = [
 # --------------------------------------------------------------------------- loading
 
 
-def load_routes() -> Tuple[Dict[str, Any], str]:
-    """`(routes, source)` — canonical file when readable, else the embedded snapshot."""
-    try:
-        raw = json.loads(ROUTES_PATH.read_text())
-        if raw.get("modes"):
-            return raw, str(ROUTES_PATH)
-    except Exception:      # noqa: BLE001 — any read/parse problem falls back to embedded
-        pass
-    return EMBEDDED_ROUTES, "embedded"
+def load_spec() -> Tuple[Optional[Dict[str, Any]], str]:
+    """`(spec, source)`. `None` when nothing is configured — which is the default."""
+    if ROUTES_PATH:
+        try:
+            raw = json.loads(ROUTES_PATH.read_text())
+            if raw.get("modes"):
+                return raw, str(ROUTES_PATH)
+            return None, f"{ROUTES_PATH} has no 'modes'"
+        except Exception as e:                      # noqa: BLE001
+            return None, f"{ROUTES_PATH} unreadable ({e.__class__.__name__})"
+    if USE_SAMPLE:
+        return SAMPLE_ROUTES, "SAMPLE (someone else's evals — do not rely on these)"
+    return None, "unconfigured"
 
 
-def routes_consistency() -> Tuple[bool, str]:
-    """Assert the embedded snapshot still agrees with canonical routes.json.
+PLACEHOLDER_MARKERS = ("REPLACE ME", "SAMPLE —")
 
-    A drifting fallback is worse than none: it fails toward permitting a model the canonical policy
-    has re-pointed or retired. Wire this into a test or a preflight, not into a comment.
+
+def unbacked(reg: ClearanceRegistry) -> List[ModelClearance]:
+    """Clearances whose evidence_ref is still a placeholder rather than a run you can open.
+
+    These are live — they will pass `require()` — which is why they need naming. A clearance is a
+    claim that a recorded eval exists; one citing "REPLACE ME" is that claim with nothing behind it.
     """
-    if not ROUTES_PATH.is_file():
-        return True, "no canonical routes.json present — embedded is authoritative"
-    try:
-        canon = json.loads(ROUTES_PATH.read_text())
-    except Exception as e:      # noqa: BLE001
-        return False, f"canonical routes.json unreadable: {e.__class__.__name__}"
-
-    cm = {k: v["model"] for k, v in (canon.get("modes") or {}).items()}
-    em = {k: v["model"] for k, v in EMBEDDED_ROUTES["modes"].items()}
-
-    # Both problems are reported in one pass. A newly-added canonical mode is *two* findings —
-    # the snapshot is stale AND the mode has no contribution kind — and surfacing them one at a
-    # time means you fix the first, re-run, and only then learn about the second.
-    problems: List[str] = []
-
-    if cm != em:
-        only_canon = {k: cm[k] for k in cm.keys() - em.keys()}
-        only_emb = {k: em[k] for k in em.keys() - cm.keys()}
-        changed = {k: (em[k], cm[k]) for k in cm.keys() & em.keys() if cm[k] != em[k]}
-        problems.append(f"DRIFT — update EMBEDDED_ROUTES. canonical-only={only_canon} "
-                        f"embedded-only={only_emb} changed={changed}")
-
-    unmapped = sorted(cm.keys() - set(KIND_FOR))
-    if unmapped:
-        problems.append(f"modes with no contribution kind: {unmapped}. Add them to KIND_FOR with "
-                        f"the reasoning, or they get no clearance at all.")
-
-    if problems:
-        return False, " | ".join(problems)
-    return True, f"embedded matches canonical, all {len(cm)} modes mapped to a kind"
+    return [c for c in reg.all()
+            if any(m in c.evidence_ref for m in PLACEHOLDER_MARKERS)]
 
 
-def build_clearances(*, include_orchestrator: bool = True) -> ClearanceRegistry:
-    """Every allowlisted routing mode as a clearance, plus the orchestrator tier.
+def build_clearances(include_orchestrator: Optional[bool] = None) -> ClearanceRegistry:
+    """Every mapped mode in the configured allowlist, plus the orchestrator tier.
 
-    A mode present in routes.json but absent from `KIND_FOR` is skipped, not guessed — a new
-    routing mode must be given a contribution kind deliberately.
+    Returns a genuinely EMPTY registry when nothing is configured — the orchestrator tier is a
+    declaration too, and shipping it live by default would hand a newcomer a working clearance
+    backed by a placeholder. `require()` then raises `NotCleared`, which is the correct outcome:
+    no eval has been recorded, so nothing is cleared.
+
+    Pass `include_orchestrator=True` explicitly to opt in regardless.
     """
-    routes, _ = load_routes()
-    default_stale = int(routes.get("staleness_warn_days") or 120)
-
-    reg = ClearanceRegistry()
-    for mode, spec in (routes.get("modes") or {}).items():
-        kinds = KIND_FOR.get(mode)
-        if not kinds:
-            continue
-        notes = spec.get("do_not_use_when") or spec.get("purpose") or ""
-        reg.add(ModelClearance(
-            mode=mode,
-            model=spec["model"],
-            emits=kinds,
-            evidence_ref=spec.get("evidence_ref") or f"routes.json:{mode}",
-            verified_date=spec["verified_date"],
-            provider=(spec.get("provider") or {}).get("order", [""])[0]
-                     if isinstance(spec.get("provider"), dict) else "",
-            stale_after_days=int(spec.get("stale_after_days") or default_stale),
-            notes=f"do_not_use_when: {notes}" if notes else "",
-        ))
+    spec, _ = load_spec()
+    if include_orchestrator is None:
+        include_orchestrator = spec is not None
+    reg = (from_allowlist(spec, KIND_FOR) if spec
+           else ClearanceRegistry(retired=SAMPLE_ROUTES["retired"] if USE_SAMPLE else None))
     if include_orchestrator:
         for c in ORCHESTRATOR_CLEARANCES:
             reg.add(c)
     return reg
 
 
-def retired_reason(mode: str) -> Optional[str]:
-    routes, _ = load_routes()
-    r = routes.get("retired") or {}
-    entry = r.get(mode)
-    if entry is None:
-        return None
-    return entry if isinstance(entry, str) else (entry.get("reason") or "retired")
-
-
-def require(reg: ClearanceRegistry, mode: str, kind: ContributionKind,
-            *, today: str = "") -> ModelClearance:
-    """`reg.require`, but a retired mode is refused with the reason it was retired.
-
-    An unknown mode and a deliberately-retired one are different facts. Collapsing them into
-    "unknown mode" is how a mode that failed an eval gets quietly re-added a year later.
-    """
-    reason = retired_reason(mode)
-    if reason:
-        raise NotCleared(f"mode {mode!r} was retired: {reason} Retired modes are refused by "
-                         f"name, not forgotten — re-clearing one needs a passing eval.")
-    return reg.require(mode, kind, today=today)
+def check() -> Tuple[bool, str]:
+    """Is the configured allowlist fully mapped? Wire this into a preflight, not a comment."""
+    spec, source = load_spec()
+    if spec is None:
+        return True, f"no allowlist configured ({source}) — zero clearances, everything refused"
+    missing = unmapped_modes(spec, KIND_FOR)
+    if missing:
+        return False, (f"{source}: modes with no contribution kind: {missing}. Add them to "
+                       f"KIND_FOR with the reasoning, or they get no clearance at all.")
+    return True, f"{source}: all {len(spec['modes'])} modes mapped to a kind"
 
 
 CLEARANCES = build_clearances()
 
 
 if __name__ == "__main__":
-    routes, source = load_routes()
-    ok, msg = routes_consistency()
-    print(f"source     : {source}")
-    print(f"consistency: {'ok' if ok else 'FAIL'} — {msg}\n")
+    spec, source = load_spec()
+    ok, msg = check()
+    print(f"source : {source}")
+    print(f"check  : {'ok' if ok else 'FAIL'} — {msg}\n")
+
+    if not CLEARANCES.modes():
+        print("No clearances. Nothing is cleared to contribute, and require() will refuse.")
+        print("  point at your own allowlist : export ABEYANCE_ROUTES_JSON=/path/routes.json")
+        print("  or read the sample          : ABEYANCE_USE_SAMPLE_ALLOWLIST=1")
+        sys.exit(0)
 
     print(f"{'mode':<22} {'kind':<15} {'model':<34} verified")
     for c in CLEARANCES.all():
         print(f"{c.mode:<22} {'/'.join(k.value for k in c.emits):<15} {c.model:<34} "
               f"{c.verified_date}")
+    weak = unbacked(CLEARANCES)
+    if weak:
+        print(f"\n⚠ {len(weak)} clearance(s) cite a placeholder, not a run you can open:")
+        for c in weak:
+            print(f"    {c.mode:<22} {c.evidence_ref[:64]}")
+        print("  These still pass require(). Record the eval or drop the clearance.")
 
     print("\nclearance_report() — what may form which kind of contribution:")
     print(json.dumps(CLEARANCES.clearance_report(), indent=2))
+    if CLEARANCES.retired:
+        print(f"\nretired (refused by name): {sorted(CLEARANCES.retired)}")
 
     today = os.environ.get("ABEYANCE_TODAY", "")
     if today:

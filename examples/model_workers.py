@@ -152,7 +152,7 @@ scope = {k: v for k, v in scope.items() if v is not None}   # a null is not a ce
 doc = {
   "id": os.environ["ABEYANCE_CONTRIBUTION_KEY"], "case_id": os.environ["ABEYANCE_CASE_ID"],
   "request_id": os.environ["ABEYANCE_REQUEST_ID"],
-  "kind": os.environ.get("ABEYANCE_CONTRIBUTION_KIND", "recommendation"),
+  "kind": os.environ["ABEYANCE_EXPECTS"],   # evidence | recommendation
   "actor": {"id": os.environ["ABEYANCE_ACTOR"], "kind": "worker", "standing": [], "display": ""},
   "summary": str(payload.get("summary", ""))[:500],
   "payload": payload,
@@ -185,7 +185,8 @@ def dollar_quoted(value: str) -> str:
 
 statement = (
     "INSERT INTO abeyance.state (kind, key, doc, updated_at, updated_by) VALUES ("
-    + ", ".join(dollar_quoted(v) for v in ("contribution", doc["id"]))
+    + ", ".join(dollar_quoted(v) for v in
+                (os.environ["ABEYANCE_CONTRIBUTION_KIND"], doc["id"]))
     + ", " + dollar_quoted(json.dumps(doc)) + "::jsonb, now(), "
     + dollar_quoted(os.environ.get("FLY_MACHINE_ID", "worker")) + ") "
     "ON CONFLICT (kind, key) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now(), "
@@ -259,7 +260,7 @@ usd = float((data.get("usage") or {}).get("cost") or 0.0)
 doc = {
   "id": os.environ["ABEYANCE_CONTRIBUTION_KEY"], "case_id": os.environ["ABEYANCE_CASE_ID"],
   "request_id": os.environ["ABEYANCE_REQUEST_ID"],
-  "kind": os.environ.get("ABEYANCE_CONTRIBUTION_KIND", "evidence"),
+  "kind": os.environ["ABEYANCE_EXPECTS"],   # evidence | recommendation
   "actor": {"id": os.environ["ABEYANCE_ACTOR"], "kind": "worker", "standing": [], "display": ""},
   "summary": str(payload.get("summary") or f"{MODE}: extracted {len(payload)} field(s)")[:500],
   "payload": payload,
@@ -282,7 +283,7 @@ with psycopg.connect(os.environ["ABEYANCE_STORE_DSN"]) as conn:
            VALUES (%s, %s, %s::jsonb, now(), %s)
            ON CONFLICT (kind, key) DO UPDATE
              SET doc = EXCLUDED.doc, updated_at = now(), updated_by = EXCLUDED.updated_by""",
-        ("contribution", doc["id"], json.dumps(doc),
+        (os.environ["ABEYANCE_CONTRIBUTION_KIND"], doc["id"], json.dumps(doc),
          os.environ.get("FLY_MACHINE_ID", "worker")))
 print(f"[evidence] {doc['summary']} (${usd:.4f})")
 '''
