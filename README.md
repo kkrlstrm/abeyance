@@ -216,7 +216,7 @@ because scope is the intersection of what every contributor asserted, and only e
 | **[Approval](#the-60-second-version)** | Durable multi-party consent for cron, serverless and batch agents. Five verdicts, deadlock that refuses to pick a side, partial answers that do not strand the batch, receipts. |
 | **[Cases](docs/CASES.md)** | A durable case that can derive its next warranted work. Typed contributions, human-gated capability expansion, policy-derived scoped authority, and one ephemeral worker per contribution. |
 
-**335 tests, no network, no credentials.** Plus three live runs against real infrastructure that
+**348 tests, no network, no credentials.** Plus three live runs against real infrastructure that
 found nine bugs the suite did not — each now pinned by a test, each written up in
 [`docs/SMOKE-RUN.md`](docs/SMOKE-RUN.md) rather than quietly fixed.
 

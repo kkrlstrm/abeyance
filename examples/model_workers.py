@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from abeyance import Capability, CapabilityRegistry, ContributionKind
 from abeyance.clearance import model_capability
-from openrouter_clearances import CLEARANCES, routes_consistency   # noqa: E402
+from openrouter_clearances import CLEARANCES, check   # noqa: E402
 
 # --------------------------------------------------------------------------- clearances
 #
@@ -367,8 +367,16 @@ def env_for(cap: Capability, case, req) -> dict:
 
 if __name__ == "__main__":
     import json as _json
-    ok, msg = routes_consistency()
+    ok, msg = check()
     print(f"allowlist  : {'ok' if ok else 'FAIL'} — {msg}\n")
+    if not CLEARANCES.modes():
+        # The empty default reaching the demo, working as designed: a capability cannot be built
+        # on a model no recorded eval has cleared, so there is nothing to show.
+        print("No clearances, so no model capability can be built. Configure an allowlist:")
+        print("  export ABEYANCE_ROUTES_JSON=/path/to/routes.json")
+        print("  # or, to read the sample (someone else's evals):")
+        print("  ABEYANCE_USE_SAMPLE_ALLOWLIST=1 python examples/model_workers.py")
+        raise SystemExit(0)
     reg = build_registry()
     print("capabilities:")
     for c in reg.all():
