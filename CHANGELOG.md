@@ -17,7 +17,15 @@ on a list filling in a vendor's UI, a document being written, an invoice clearin
   instead, which leaves the record intact and visibly stale) and for an external need (no worker to
   re-run; a wait is not a probe).
 
-**Two holes found by writing those tests, both of the quiet kind:**
+**Three holes found by writing those tests, all of the quiet kind:**
+
+- **A tick could resurrect an executed case, and it executed again.** `execute()` guards on
+  `status is EXECUTED`, but `_tick_one` recomputed status from authority and wrote `AUTHORIZED`
+  straight over `EXECUTED`; one tick later the same case ran its executor a second time. A list
+  pushed to the dialer twice, a campaign sent twice — and nothing in the record looks wrong,
+  because both executions were genuinely authorized. A tick now leaves a case alone unless its
+  status is open, authorized or blocked, which also stops an explicitly abandoned case from
+  starting containers.
 
 - A **delegated decision never went stale.** `policy_decision` stamped no `dependencies`, so
   "pre-cleared because suppression is verified" kept clearing after suppression stopped being

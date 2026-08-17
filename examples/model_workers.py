@@ -32,46 +32,24 @@ and writes one row.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from abeyance import Capability, CapabilityRegistry, ContributionKind
-from abeyance.clearance import ClearanceRegistry, ModelClearance, model_capability
+from abeyance.clearance import model_capability
+from openrouter_clearances import CLEARANCES, routes_consistency   # noqa: E402
 
 # --------------------------------------------------------------------------- clearances
 #
-# A small file, reviewable in a diff. Every entry names a USE CASE, carries the eval that cleared
-# it, and names the contribution kinds that eval actually covers. Swap the model behind a mode and
-# the diff shows it; ask a mode for a kind it was not cleared for and the registry refuses to
-# build. Replace `evidence_ref` values with your own recorded runs — a clearance you cannot open
-# and read is decoration.
-
-CLEARANCES = ClearanceRegistry([
-    ModelClearance(
-        mode="case-recommendation",
-        model="claude-opus-5",
-        emits=(ContributionKind.RECOMMENDATION,),
-        evidence_ref="evals/case-recommendation.md — launch/no-launch vs recorded human decisions",
-        verified_date="2026-08-17",
-        notes="Judgment on a consequential action, reviewed by a human before it can execute. "
-              "NOT for bulk extraction — it is the expensive way to read a page.",
-    ),
-    ModelClearance(
-        mode="extract-accurate",
-        model="deepseek/deepseek-v4-flash",
-        emits=(ContributionKind.EVIDENCE,),
-        evidence_ref="OBSERVATIONS.md 'Eval 1b' — field agreement vs an orchestrator baseline",
-        verified_date="2026-06-04",
-        notes="Structured field extraction where accuracy matters more than throughput. NOT for "
-              "a single row a human acts on directly, and NOT for judgment of any kind.",
-    ),
-    ModelClearance(
-        mode="digest-longcontext",
-        model="deepseek/deepseek-v4-flash",
-        emits=(ContributionKind.EVIDENCE,),
-        evidence_ref="OBSERVATIONS.md 'Eval 2b' — entity-grounded digest over long transcripts",
-        verified_date="2026-06-04",
-        notes="Entity-grounded structured digest over many long documents. Not a decision input "
-              "on its own — it summarizes what was said, not whether to act on it.",
-    ),
-])
+# Not defined here. `openrouter_clearances` derives them from an existing eval-gated routing
+# allowlist (`routes.json`), so there is ONE allowlist rather than a copy that can disagree with
+# it — and it adds the orchestrator tier that file deliberately does not cover. Every entry carries
+# the eval that cleared it, the date it was scored, and the contribution kinds that eval covers.
+#
+# The split falls out of the source policy rather than being imposed: the cheap metered modes are
+# cleared for EVIDENCE, the judgment tier for RECOMMENDATION, and nothing for DECISION ever.
 
 # --------------------------------------------------------------------------- runners
 #
@@ -388,6 +366,8 @@ def env_for(cap: Capability, case, req) -> dict:
 
 if __name__ == "__main__":
     import json as _json
+    ok, msg = routes_consistency()
+    print(f"allowlist  : {'ok' if ok else 'FAIL'} — {msg}\n")
     reg = build_registry()
     print("capabilities:")
     for c in reg.all():

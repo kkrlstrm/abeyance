@@ -39,8 +39,8 @@ from .dispatch import DispatchReport, Dispatcher, EnvFor
 from .errors import CaseNotFound, ConfigurationError, NotAuthorized
 from .loop import ApprovalLoop
 from .models import (Actor, Authorization, Case, CaseStatus, Contribution, ContributionKind,
-                     ContributionRequest, Escalation, EscalationEvent, Item, RequestStatus,
-                     Verdict)
+                     ContributionRequest, Escalation, EscalationEvent, Item, OPEN_CASE_STATUSES,
+                     RequestStatus, Verdict)
 from .policy import CasePolicy
 from .ports import Clock, Runner, Store, SystemClock
 from .standing import Authority, authorize, summarize
@@ -619,6 +619,14 @@ class CaseLoop:
         now = self._now()
         report = TickReport(case_id=case.id, status=case.status)
         dirty = False
+
+        # A case that is finished, expired or abandoned is history, not a slot. `pending()` already
+        # filters these out, but `tick(case_id)` takes whatever id it is handed — and without this
+        # guard an explicit tick on a closed case would derive fresh needs and START CONTAINERS
+        # against it. Spending money on work somebody deliberately closed, quietly, is exactly the
+        # class of failure this layer exists to prevent.
+        if case.status not in OPEN_CASE_STATUSES:
+            return report
 
         if self._expire_if_due(case, now):
             report.status, report.expired, report.saved = case.status, True, True
