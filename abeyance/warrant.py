@@ -29,6 +29,11 @@ is load-bearing:
   other from spending money forever. Hitting the cap blocks the case loudly — a silently
   truncated investigation looks like a thorough one.
 
+  **There is exactly one tier.** A rule marked `fallback=True` runs only on a pass where no
+  ordinary rule warranted anything. That is not a priority scheme — it is the difference between
+  "here is what to do" and "nothing applies, now what", and only the second kind of rule needs to
+  know whether the first kind had an answer. It is what `planner.py` is built on.
+
 If you find yourself needing retraction, priorities, or within-pass chaining, that is the
 signal to stop and reconsider rather than to grow this file. A workflow engine is the right
 tool for a process whose shape you actually know.
@@ -110,6 +115,20 @@ class Rule:
     name: str
     predicate: Predicate
     description: str = ""
+
+    fallback: bool = False
+    """Evaluate this rule only on a pass where no ordinary rule warranted anything.
+
+    The one tier this module has, and it exists for a single question: *what should happen when
+    nothing deterministic applies?* A rule that answers that must not compete with the rules that
+    know the answer, or it fires alongside them and plans against a picture that is about to
+    change. This is what `planner.Planner` uses, and it is why a planner costs nothing on any tick
+    where an ordinary rule had something to say.
+
+    It adds no agenda and no priorities: within each tier, rules are still pure, independent, and
+    evaluated in registration order. Two tiers, resolved by "did the first one produce anything",
+    is the whole of it. If you find yourself wanting a third, that is the signal to stop.
+    """
 
     def __call__(self, view: "CaseView") -> Sequence[Need]:
         out = self.predicate(view) or ()
@@ -233,46 +252,62 @@ def derive(case: Case, contributions: Sequence[Contribution], rules: Sequence[Ru
     Pure — it builds `ContributionRequest` objects and returns them. It does not attach them to
     the case, does not dispatch, and does not touch the store. The caller decides whether to
     accept the derivation, which keeps "what would this do?" answerable without side effects.
+
+    Ordinary rules go first. Fallback rules run only if that pass produced nothing at all — no
+    request, no unmatched need, no cap — because a fallback rule answers "nothing deterministic
+    applies, now what?" and that question is not open on a tick where something did apply.
     """
     view = CaseView(case, contributions)
     out = Derivation()
-    claimed = {r.need for r in case.requests}
+
+    # Idempotence is keyed on the REQUEST ID, not the need label. For every rule that does not
+    # set `Need.request_id` these are the same string, so nothing changes — but it is what makes
+    # the documented override work through rules: one case can legitimately want the same kind of
+    # work twice (two vendors, two regions, the same question asked again a week later), and
+    # keying on the label made that silently impossible.
+    claimed = {r.id for r in case.requests}
     room = policy.max_derived_requests - len(case.requests)
 
-    for rule in rules:
-        produced = False
-        for need in rule(view):
-            if need.need in claimed:
-                continue  # structural idempotence — a rule cannot double-request
-            if room <= 0:
-                out.capped.append(need.need)
-                continue
-            if need.external:
-                # No capability, no reach, nothing dispatched. It can only block.
+    def run(subset: Sequence[Rule]) -> None:
+        nonlocal room
+        for rule in subset:
+            produced = False
+            for need in rule(view):
+                if need.id_for() in claimed:
+                    continue  # structural idempotence — a rule cannot double-request
+                if room <= 0:
+                    out.capped.append(need.need)
+                    continue
+                if need.external:
+                    # No capability, no reach, nothing dispatched. It can only block.
+                    out.new_requests.append(ContributionRequest(
+                        id=need.id_for(), need=need.need, capability="",
+                        expects=need.expects or ContributionKind.DECISION, spec=dict(need.spec),
+                        status=RequestStatus.REQUESTED, warranted_by=rule.name,
+                        optional=need.optional))
+                    claimed.add(need.id_for())
+                    room -= 1
+                    produced = True
+                    continue
+                cap = registry.match(need.need)
+                if cap is None:
+                    out.unmatched.append(need.need)
+                    claimed.add(need.id_for())  # not the same gap once per rule per tick
+                    continue
                 out.new_requests.append(ContributionRequest(
-                    id=need.id_for(), need=need.need, capability="",
-                    expects=need.expects or ContributionKind.DECISION, spec=dict(need.spec),
+                    id=need.id_for(), need=need.need, capability=cap.name,
+                    expects=need.expects or cap.emits, spec=dict(need.spec),
                     status=RequestStatus.REQUESTED, warranted_by=rule.name,
                     optional=need.optional))
-                claimed.add(need.need)
+                claimed.add(need.id_for())
                 room -= 1
                 produced = True
-                continue
-            cap = registry.match(need.need)
-            if cap is None:
-                out.unmatched.append(need.need)
-                claimed.add(need.need)  # do not report the same gap once per rule per tick
-                continue
-            out.new_requests.append(ContributionRequest(
-                id=need.id_for(), need=need.need, capability=cap.name,
-                expects=need.expects or cap.emits, spec=dict(need.spec),
-                status=RequestStatus.REQUESTED, warranted_by=rule.name,
-                optional=need.optional))
-            claimed.add(need.need)
-            room -= 1
-            produced = True
-        if produced:
-            out.fired.append(rule.name)
+            if produced:
+                out.fired.append(rule.name)
+
+    run([r for r in rules if not r.fallback])
+    if not out.anything:
+        run([r for r in rules if r.fallback])
     return out
 
 

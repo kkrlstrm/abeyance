@@ -162,6 +162,38 @@ load-bearing:
 If you need retraction, priorities, or within-pass chaining, stop: a workflow engine is the right
 tool for a process whose shape you actually know.
 
+## When no rule applies: the disposable planner
+
+Rules cover the steps you can write down. What they cannot cover is a case stuck in a way nobody
+anticipated — evidence in, no rule matching, and the next move a judgment call. Without something
+for that moment, the case sits until a person reads it.
+
+[`planner.py`](../abeyance/planner.py) is a worker for that moment, and it is a worker rather than
+a supervisor: dispatched like any other, contributes one `RECOMMENDATION`, dies. There is still no
+persistent central agent.
+
+```python
+planner = Planner(registry, budget=PlanBudget(max_plans=2, max_planned_needs=3))
+registry.add(planner_capability(image="ghcr.io/you/planner@sha256:...", app="workers-model"))
+cases = CaseLoop(..., rules=[*your_rules, *planner.rules()])
+```
+
+The planner proposes; abeyance disposes. A plan is data — need labels and freeform specs — and the
+`Need` objects are constructed by the library, so a planner cannot mark its own evidence
+`optional`, route around the registry with `external=True`, or authorize anything at any
+confidence. A proposal naming an unregistered capability blocks the case exactly as a rule's would.
+
+The limits that keep it from making cases take forever are all deterministic: **at most
+`max_planned_needs` pieces of work across at most `max_plans` rounds, every proposal required to
+name what a different answer would change, no planning while work is in flight or a request has
+failed, and a spent budget that ends in a human decision rather than a stall.**
+
+The trigger is a `fallback` rule — the one tier `warrant.py` has — so on any tick where a
+deterministic rule warranted something, no model is called at all.
+
+Full treatment in [`docs/PLANNER.md`](PLANNER.md); a runnable one with no model in
+[`examples/planner_case.py`](../examples/planner_case.py).
+
 ## Dispatch: the load-bearing part
 
 The failure this exists for has no error message. You ask for a worker, the platform accepts, and

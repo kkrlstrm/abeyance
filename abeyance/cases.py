@@ -573,20 +573,48 @@ class CaseLoop:
                 for r in d.new_requests:
                     case.log("warranted", request=r.id, need=r.need, by=r.warranted_by)
                 dirty = True
+            # Both branches below are *standing* conditions, not events: an unmatched need stays
+            # unmatched until a person mints the capability, and a capped case stays capped. The
+            # rule that produced them re-emits on every tick, so both re-derive on every tick.
+            # That makes three things matter, and the first version got all three wrong:
+            #
+            #   The escalation fires once per set, not once per tick. An alert that repeats
+            #   hourly for a week is an alert somebody filters — the same reasoning as the
+            #   stale-decision branch below, and the same shape of fix.
+            #
+            #   The row is only written when something actually changed. Re-saving an unchanged
+            #   case marks it active, and a case that is marked active every hour NEVER EXPIRES:
+            #   it sits blocked forever, looking tended, waiting on a person nobody told twice.
+            #
+            #   The status still goes BLOCKED every tick, because it is still true.
             if d.unmatched:
-                case.status = CaseStatus.BLOCKED
-                dirty = True
-                report.escalations.append(self._raise(
-                    Escalation.CAPABILITY_MISSING, case, d.unmatched,
-                    f"needs with no registered capability: {d.unmatched}. Minting one is a "
-                    "human decision; the case is blocked until then."))
+                if case.status is not CaseStatus.BLOCKED:
+                    case.status = CaseStatus.BLOCKED
+                    dirty = True
+                seen = {tuple(h.get("needs") or []) for h in case.history
+                        if h.get("event") == "capability-missing"}
+                key = tuple(sorted(d.unmatched))
+                if key not in seen:
+                    case.log("capability-missing", needs=list(key))
+                    dirty = True
+                    report.escalations.append(self._raise(
+                        Escalation.CAPABILITY_MISSING, case, d.unmatched,
+                        f"needs with no registered capability: {d.unmatched}. Minting one is a "
+                        "human decision; the case is blocked until then."))
             if d.capped:
-                case.status = CaseStatus.BLOCKED
-                dirty = True
-                report.escalations.append(self._raise(
-                    Escalation.REQUEST_CAP, case, d.capped,
-                    f"hit max_derived_requests={self.policy.max_derived_requests}; dropped "
-                    f"{d.capped}. Two rules warranting each other is the usual cause."))
+                if case.status is not CaseStatus.BLOCKED:
+                    case.status = CaseStatus.BLOCKED
+                    dirty = True
+                seen = {tuple(h.get("needs") or []) for h in case.history
+                        if h.get("event") == "request-cap"}
+                key = tuple(sorted(d.capped))
+                if key not in seen:
+                    case.log("request-cap", needs=list(key))
+                    dirty = True
+                    report.escalations.append(self._raise(
+                        Escalation.REQUEST_CAP, case, d.capped,
+                        f"hit max_derived_requests={self.policy.max_derived_requests}; dropped "
+                        f"{d.capped}. Two rules warranting each other is the usual cause."))
 
         # -- dispatch: start containers for anything outstanding, chase anything lost
         if self.dispatcher is not None:
