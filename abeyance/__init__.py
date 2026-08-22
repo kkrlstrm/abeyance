@@ -77,7 +77,7 @@ from .standing import Authority, authorize, counts_as_decision, narrow_scope
 from .verdict import VerdictSummary, summarize, verdict_for, verdicts
 from .warrant import CaseView, Derivation, Need, Rule, always, derive, when_payload
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "__version__",

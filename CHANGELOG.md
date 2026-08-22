@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — unreleased
 
 **The disposable planner (`planner.py`).** An optional worker for the moment no rule applies: the
 evidence is in, nothing matches it, and the next move is a judgment call. It reads the case, picks
