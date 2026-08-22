@@ -240,6 +240,32 @@ def test_a_rule_wanting_unreachable_reach_blocks_the_case(make_cases, escalation
                                 if e.kind is Escalation.CAPABILITY_MISSING][0].detail
 
 
+def test_a_capability_gap_is_a_standing_condition_not_an_hourly_alarm(make_cases, escalations,
+                                                                     clock):
+    """Nobody mints a worker by waiting, so the rule re-emits and the gap re-derives forever.
+
+    Two consequences, both of which used to be wrong. The alert repeated on every tick, which is
+    how a channel that exists to make a guarantee visible becomes the one people filter. And the
+    unchanged case was re-saved every tick, which marks it active — so a case blocked on a
+    capability nobody was going to build sat there looking tended and never expired.
+    """
+    rogue = make_cases(rules=[Rule("rogue", lambda v: [Need("wire-money")])])
+    case = rogue.open(action="launch-campaign", subject_key="acme")
+
+    for _ in range(8):
+        rogue.tick(case.id)
+        clock.advance(hours=6)
+
+    assert len([e for e in escalations if e.kind is Escalation.CAPABILITY_MISSING]) == 1
+    assert rogue.get(case.id).status is CaseStatus.BLOCKED, "and it is still, truthfully, blocked"
+
+    for _ in range(20):
+        clock.advance(days=1)
+        rogue.tick(case.id)
+    assert rogue.get(case.id).status is CaseStatus.EXPIRED
+    assert Escalation.EXPIRY in [e.kind for e in escalations]
+
+
 # --------------------------------------------------------------- contributions as rows
 
 

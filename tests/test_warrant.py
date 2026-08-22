@@ -274,3 +274,61 @@ def test_view_request_state_helpers():
     assert view.requested("campaign-performance") and view.outstanding("campaign-performance")
     assert view.failed("fit-score") and not view.satisfied("fit-score")
     assert not view.requested("integrity-deep-check")
+
+
+# --------------------------------------------------------------- the one tier
+
+
+def test_a_fallback_rule_stays_out_of_the_way_when_something_else_fired(registry):
+    """The whole point of the tier: a rule that knows the answer beats one that has to work it
+    out. Without this a planner would run alongside the deterministic rule that just warranted
+    something, and plan against a picture that is one tick from changing."""
+    ordinary = Rule("ordinary", lambda v: [Need("campaign-performance")])
+    last_resort = Rule("last-resort", lambda v: [Need("fit-score")], fallback=True)
+
+    out = derive(case(), [], [last_resort, ordinary], registry, CasePolicy())
+
+    assert [r.need for r in out.new_requests] == ["campaign-performance"]
+    assert out.fired == ["ordinary"], "registration order does not promote a fallback rule"
+
+
+def test_a_fallback_rule_runs_when_nothing_ordinary_did(registry):
+    ordinary = Rule("ordinary", lambda v: [])
+    last_resort = Rule("last-resort", lambda v: [Need("fit-score")], fallback=True)
+
+    out = derive(case(), [], [ordinary, last_resort], registry, CasePolicy())
+
+    assert [r.need for r in out.new_requests] == ["fit-score"]
+
+
+def test_an_unmatched_need_still_counts_as_the_ordinary_pass_having_something_to_say(registry):
+    """A capability gap is news. Asking a planner what to do next on the same tick would bury it
+    under a fresh proposal, and the case would look like it was progressing."""
+    ordinary = Rule("ordinary", lambda v: [Need("wire-money")])
+    last_resort = Rule("last-resort", lambda v: [Need("fit-score")], fallback=True)
+
+    out = derive(case(), [], [ordinary, last_resort], registry, CasePolicy())
+
+    assert out.unmatched == ["wire-money"]
+    assert out.new_requests == []
+
+
+def test_the_same_need_twice_needs_two_request_ids(registry):
+    """`Need.request_id` documents this — one case legitimately wanting the same kind of work
+    twice — and keying idempotence on the need label made it silently impossible."""
+    twice = Rule("twice", lambda v: [Need("fit-score", request_id="fit-score"),
+                                     Need("fit-score", request_id="fit-score#2")])
+
+    out = derive(case(), [], [twice], registry, CasePolicy())
+
+    assert [r.id for r in out.new_requests] == ["fit-score", "fit-score#2"]
+    assert all(r.need == "fit-score" for r in out.new_requests)
+
+
+def test_the_default_request_id_is_still_the_need_label(registry):
+    """Which is why nothing that does not set `request_id` changes behaviour."""
+    twice = Rule("twice", lambda v: [Need("fit-score"), Need("fit-score")])
+
+    out = derive(case(), [], [twice], registry, CasePolicy())
+
+    assert len(out.new_requests) == 1

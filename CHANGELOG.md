@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+**The disposable planner (`planner.py`).** An optional worker for the moment no rule applies: the
+evidence is in, nothing matches it, and the next move is a judgment call. It reads the case, picks
+from the registered capabilities, proposes what to try next, and dies. There is still no persistent
+central agent — a plan is a `RECOMMENDATION`, with the authority every recommendation has, which is
+none.
+
+The planner decides what should be tried; abeyance decides what is allowed. A plan is *data* — need
+labels, one-line reasons, freeform specs — and the `Need` objects are constructed by the library
+from that data, which is why a planner cannot mark its own evidence `optional`, route around the
+registry with `external=True`, or propose more planning. A need no registered capability produces
+blocks the case and names the gap, exactly as a rule's would.
+
+The design risk is not escalation, it is usefulness: an agent asked "what else should we look at?"
+always has an answer, and a case that keeps finding one never closes. Six limits, all deterministic
+and all checked against the case's own rows:
+
+- `max_plans` (default 2) — planning rounds per case, ever.
+- `max_planned_needs` (default 3) — total work a planner may add, and `max_needs_per_plan`
+  (default 2) in any one round.
+- Every proposal must fill in `changes_decision_if`. A blank one is dropped before it costs a
+  container, and the question has no good answer for the investigation nobody needs.
+- Standstill guards — never while work is in flight, a human is deciding, or a request has
+  **FAILED**. Planning past a hole in the evidence is "we could not gather it, so we proceeded".
+- A spent budget warrants the human decision on what is on the record. The terminal state of
+  pathfinding is a decision, not another loop.
+- A round that proposes nothing usable goes straight to a person. No retry at the same standstill.
+
+Also: `planner_capability()` (the least-privileged worker there is — `model-api` reach and nothing
+else), `abeyance case-plan` for what was proposed and what was dropped and why, and
+`examples/planner_case.py`, which runs the whole shape with no model, no platform and no key.
+
+**`Rule.fallback`** — the one tier `warrant.py` has. A fallback rule is evaluated only on a pass
+where no ordinary rule warranted anything, because "here is what to do" and "nothing applies, now
+what" are different questions. It adds no agenda and no priorities; within each tier rules remain
+pure, independent and in registration order. This is what makes a planner the last resort rather
+than a competitor to the rules you wrote.
+
+**`derive()` keys idempotence on the request id, not the need label.** `Need.request_id` documented
+the case of one case legitimately wanting the same kind of work twice; keying on the label made it
+silently impossible through rules. Identical behaviour for every rule that does not set it.
+
+**A capability gap is a standing condition, not an hourly alarm.** Nobody mints a worker by waiting,
+so an unmatched need re-derives on every tick. `CAPABILITY_MISSING` (and `REQUEST_CAP`) now escalate
+once per set rather than once per tick, and the unchanged case is no longer re-saved every tick —
+which used to mark it active, so a case blocked on a capability nobody was going to build sat there
+looking tended and never expired.
+
 ## 0.2.0 — unreleased
 
 **The case layer.** The approval layer detaches consent from the runtime that asked for it; this

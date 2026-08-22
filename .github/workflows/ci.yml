@@ -27,6 +27,7 @@ jobs:
           python examples/01_single_approver.py > /dev/null
           python examples/02_two_approvers_and_a_deadlock.py > /dev/null
           python examples/03_scheduled_worker.py > /dev/null
+          python examples/planner_case.py > /dev/null
 
   postgres-contract:
     runs-on: ubuntu-latest

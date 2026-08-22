@@ -488,6 +488,44 @@ that writes to your CRM. The platform's app identity and secrets enforce that bo
 records which registered boundary the case may request. The cost is a container boot — this is for
 work measured in hours to days, not a 200ms tool call.
 
+### When no rule applies: a disposable planner
+
+Rules cover the steps you can write down. A case stuck in a way nobody anticipated — evidence in,
+no rule matching, next move a judgment call — otherwise sits until a person reads it.
+
+[`Planner`](docs/PLANNER.md) is a worker for that moment, and a worker rather than a supervisor:
+dispatched like any other, contributes one `RECOMMENDATION`, dies. There is still no persistent
+central agent, and the case is still the only durable thing.
+
+```python
+planner = Planner(registry, budget=PlanBudget(max_plans=2, max_planned_needs=3))
+registry.add(planner_capability(image="ghcr.io/you/planner@sha256:...", app="workers-model"))
+cases = CaseLoop(..., rules=[*your_rules, *planner.rules()])
+```
+
+**The planner decides what to try; abeyance decides what is allowed.** A plan is data — need
+labels and freeform specs — and the `Need` objects are built by the library, so a planner cannot
+mark its own evidence non-blocking, route around the registry, or authorize anything at any
+confidence. A need no capability produces blocks the case and asks a person, exactly as a rule's
+would.
+
+The interesting risk is not that it escalates. It is that it is *useful enough to keep going* — one
+more check, one more angle, each round reasonable, the case never closing. Every limit against that
+is deterministic and checked against the case's own rows:
+
+> **A planner can add at most `max_planned_needs` pieces of work to a case, across at most
+> `max_plans` rounds, and then the case goes to a person.**
+
+Plus: every proposal must name what a different answer would change (a blank `changes_decision_if`
+is dropped before it costs a container), no planning while work is in flight or a request has
+*failed*, and a spent budget that ends in a human decision rather than a stall. Its trigger is a
+`fallback` rule, so on any tick where a deterministic rule warranted something, no model is called
+at all.
+
+```bash
+abeyance --app app:cases case-plan --id <case-id>   # what it proposed, what was dropped, and why
+```
+
 See [`docs/CASES.md`](docs/CASES.md) for the full picture, including what is deliberately *not*
 provided (replay-based recovery, retry policies, exactly-once) and where those live instead.
 
@@ -495,6 +533,7 @@ provided (replay-based recovery, retry policies, exactly-once) and where those l
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the state machine, the verdict rules, the seams, the concurrency boundary
 - [`docs/CASES.md`](docs/CASES.md) — the case layer: typed contributions, standing, reach, dispatch leases, scoped authority
+- [`docs/PLANNER.md`](docs/PLANNER.md) — the disposable planner: what it may propose, and the six deterministic limits that stop it making a case take forever
 - [`docs/SMOKE-RUN.md`](docs/SMOKE-RUN.md) — a real run against Fly machines, live Postgres and a Gmail thread, including the two bugs it found that the test suite did not
 - [`docs/FAILURE-MODES.md`](docs/FAILURE-MODES.md) — twelve silent failures the design is shaped around, each pinned to its test
 

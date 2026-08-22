@@ -241,6 +241,24 @@ def cmd_case_sweep(cases: "CaseLoop", a: argparse.Namespace) -> int:
     return _out(cases.sweep())
 
 
+def cmd_case_plan(cases: "CaseLoop", a: argparse.Namespace) -> int:
+    """What the planner proposed, what was accepted, and what it has left to spend.
+
+    The command to reach for when a case looks like it is thinking instead of closing. It reads
+    only — the review is a pure function of the plan, the case and the registry, so running this
+    a year later prints what the tick that acted on it saw.
+    """
+    from .planner import planner_for
+    from .warrant import CaseView
+    planner = planner_for(cases.rules)
+    if planner is None:
+        return _out({"planner": None,
+                     "note": "no Planner is wired into this case loop's rules"}, EXIT_USAGE)
+    case = cases.get(a.id)
+    view = CaseView(case, cases.contributions(a.id))
+    return _out({"case": case.id, "status": case.status.value, **planner.status(view)})
+
+
 def cmd_case_capabilities(cases: "CaseLoop", a: argparse.Namespace) -> int:
     """What workers exist and what each can reach. The registry, as a review artefact."""
     return _out({"capabilities": cases.registry.to_doc()["capabilities"],
@@ -369,6 +387,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("case-sweep", help="expire cases nobody has contributed to").set_defaults(
         func=cmd_case_sweep, needs="case")
+
+    cp = sub.add_parser("case-plan",
+                        help="what the planner proposed, what was accepted, and what is left")
+    cp.add_argument("--id", required=True)
+    cp.set_defaults(func=cmd_case_plan, needs="case")
 
     sub.add_parser("case-capabilities",
                    help="what workers exist and what each can reach").set_defaults(

@@ -219,3 +219,68 @@ itself for permission.
 
 > `test_loop.py::test_refuses_a_proposal_nobody_can_approve`
 > `test_multi_approver.py::test_roles_required_catches_a_one_person_two_yes_policy`
+
+---
+
+## 13. The planner that is too useful to stop
+
+**What happens.** A case gets a planner, and the planner is good. Every round it finds one more
+thing worth knowing: a deliverability check, then a list-quality score, then a look at what the
+competitor did. Each proposal is individually reasonable and defensible in review. Three weeks
+later the case has eleven pieces of evidence, nobody has decided anything, and the window the work
+was for has closed.
+
+**Why it is silent.** Every single round looks like diligence. There is no error, no stall, no
+escalation, and the case history reads as a thorough investigation. The only symptom is a date.
+
+**The fix.** Not a better prompt — a budget that the planner does not administer. `max_plans` (2)
+rounds per case ever, `max_planned_needs` (3) pieces of work across all of them, and
+`max_needs_per_plan` (2) in any one round, all counted from the case's own request rows. When the
+budget is spent the planner's last act is to warrant the human decision on what is already on the
+record, because a planner that simply stops leaves a case that is neither progressing nor asking
+for anything.
+
+> `test_planner.py::test_a_planner_cannot_keep_a_case_open_forever`
+> `test_planner.py::test_the_round_budget_is_hard_and_ends_in_a_person`
+> `test_planner.py::test_the_work_budget_is_hard_across_rounds`
+
+---
+
+## 14. The investigation nobody needed
+
+**What happens.** A planner proposes something that sounds obviously worth doing — "we should also
+score the list quality" — and it is dispatched. The evidence arrives. It changes nothing, because
+no answer it could have returned would have changed what the case does. The case is slower and the
+bill is larger and the record is longer, and none of it was wrong exactly.
+
+**Why it is silent.** The request succeeded. The evidence is real. It reads as thoroughness in
+every review.
+
+**The fix.** `changes_decision_if` is required on every proposal and checked for emptiness before
+anything is dispatched. It costs nothing, it cannot be bluffed past — the question has no good
+answer for the investigation nobody needs — and the reason a dropped proposal was dropped is
+visible in `abeyance case-plan`.
+
+> `test_planner.py::test_a_proposal_that_cannot_say_what_it_would_change_is_dropped`
+> `test_planner.py::test_a_plan_with_nothing_usable_goes_straight_to_a_person`
+
+---
+
+## 15. Blocked, and quietly immortal
+
+**What happens.** A rule warrants a need no capability produces. The case goes `BLOCKED` and
+escalates — correctly. Nobody mints the worker, so the need re-derives on the next tick, and the
+next. The escalation fires hourly until the channel is filtered. Worse, the unchanged case is
+re-saved every tick, and saving marks it active — so a case waiting on a capability nobody was ever
+going to build never expires. It sits there looking tended.
+
+**Why it is silent.** Both halves look healthy. There is an alert (many alerts) and a case with
+recent activity.
+
+**The fix.** A capability gap is a *standing condition*, not an event: `CAPABILITY_MISSING` and
+`REQUEST_CAP` escalate once per set of needs, the status stays `BLOCKED` because that stays true,
+and the row is written only when something actually changed — so the case expires on schedule like
+any other nobody is contributing to.
+
+> `test_cases.py::test_a_capability_gap_is_a_standing_condition_not_an_hourly_alarm`
+> `test_planner.py::test_a_case_blocked_on_a_missing_capability_still_expires`

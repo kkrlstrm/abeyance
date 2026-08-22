@@ -64,6 +64,10 @@ from .models import (Actor, ActorKind, Approver, Authorization, Case, CaseStatus
                      ContributionKind, ContributionRequest, Escalation, EscalationEvent,
                      ExecutionReport, Item, ItemOutcome, Proposal, Reply, RequestStatus, Sent,
                      Status, Verdict)
+from .planner import (ASSESS_BLOCKED, ASSESS_READY, ASSESS_WORK, DigestLimits, PLAN_FRUGAL,
+                      PLAN_NEED, PLAN_SCHEMA, PLAN_STANDARD, PLAN_TAG, PLANNER_INSTRUCTIONS,
+                      Plan, PlanBudget, PlanProposal, PlanReview, Planner, parse_plan,
+                      planned_needs_used, planner_capability, review_plan, rounds_used)
 from .policy import (ALL, ANY_ONE, CASE_DEFAULT, CASE_IRREVERSIBLE, SINGLE_APPROVER, UNANIMOUS,
                      ApprovalPolicy, CasePolicy, majority)
 from .ports import (Clock, FrozenClock, Notifier, Renderer, RunState, Runner, Store, SystemClock,
@@ -108,6 +112,11 @@ __all__ = [
     "authorize", "counts_as_decision", "narrow_scope", "Authority",
     # warrant (dynamic activity selection)
     "Rule", "Need", "CaseView", "Derivation", "derive", "always", "when_payload",
+    # planner (the disposable quarterback — proposes needs, decides nothing)
+    "Planner", "PlanBudget", "PlanProposal", "PlanReview", "Plan", "DigestLimits",
+    "planner_capability", "review_plan", "parse_plan", "rounds_used", "planned_needs_used",
+    "PLAN_NEED", "PLAN_TAG", "PLAN_STANDARD", "PLAN_FRUGAL", "PLAN_SCHEMA",
+    "PLANNER_INSTRUCTIONS", "ASSESS_READY", "ASSESS_WORK", "ASSESS_BLOCKED",
     # dispatch
     "Dispatcher", "DispatchReport", "DispatchRecord", "EnvFor",
     # case policy
