@@ -208,13 +208,16 @@ same detachment applied to work with several kinds of contributor — and adds o
 described here:
 
 **Runner** — `start / state / stop` over a worker. Deliberately primitive (image, command,
-environment) so it knows nothing about cases, contributions, or authority. `FlyMachinesRunner`
-uses the production isolation shape: one auto-destroyed Fly machine per contribution, running in
-the capability's app and inheriting only that app's secrets. `LocalProcessRunner` is for local
-development and makes no isolation claim. The runner is not responsible for retries (the
-dispatcher owns those, because "should we try again" is a question about the case) and not
-responsible for delivering results (a worker writes its own contribution, so one that finishes
-after the dispatcher exited still counts).
+environment) so it knows nothing about cases, contributions, or authority. In production, a runner
+must map each capability onto a real execution boundary with its own identity, secrets, and network
+reach, then destroy the worker after its contribution. That boundary might be a Kubernetes service
+account/namespace, an ECS task role, a Cloud Run service account, a Nomad allocation policy, or an
+equivalent primitive. `FlyMachinesRunner` is the included reference adapter and maps it to a Fly
+app with an auto-destroyed machine; `LocalProcessRunner` is for local development and makes no
+isolation claim. The runner is not responsible for retries (the dispatcher owns those, because
+"should we try again" is a question about the case) and not responsible for delivering results
+(a worker writes its own contribution, so one that finishes after the dispatcher exited still
+counts).
 
 The module map extends as follows, keeping the same discipline — the file that decides whether
 something may happen stays pure and readable in one screen:
