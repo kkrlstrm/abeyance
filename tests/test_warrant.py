@@ -103,11 +103,11 @@ def test_carry_threads_context_into_the_next_workers_spec(registry):
     rule = when_payload("integrity-deep-check", given="campaign-performance",
                         key="data_problem", carry=("client", "days_since_last_send"))
     c = case(satisfied("perf", "campaign-performance"))
-    ev = evidence("perf", {"data_problem": True, "client": "Tassel",
+    ev = evidence("perf", {"data_problem": True, "client": "Northwind",
                            "days_since_last_send": 17, "irrelevant": "dropped"})
 
     spec = derive(c, [ev], [rule], registry, CasePolicy()).new_requests[0].spec
-    assert spec["client"] == "Tassel"
+    assert spec["client"] == "Northwind"
     assert spec["days_since_last_send"] == 17
     assert "irrelevant" not in spec, "carry is an allowlist, not a payload dump"
 

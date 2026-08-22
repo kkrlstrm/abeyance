@@ -377,20 +377,20 @@ def test_the_case_works_the_problem_after_the_facts_change(recovery, loop, clock
     done four things nobody listed when it opened, each one warranted by what the previous one
     found.
     """
-    case = recovery.open(action=ACTION, subject_key="tassel",
-                         context={"client": "Tassel"})
+    case = recovery.open(action=ACTION, subject_key="northwind",
+                         context={"client": "Northwind"})
     assert case.requests == [], "nothing planned at open time"
 
     # --- the original plan -------------------------------------------------
     recovery.tick(case.id)
     worker(recovery, case.id, "campaign-performance",
-           {"client": "Tassel", "gone_quiet": True, "days_since_last_send": 17},
+           {"client": "Northwind", "gone_quiet": True, "days_since_last_send": 17},
            name="perf")
     recovery.tick(case.id)
 
     # The coarse check says it is safe. This is what the human will be shown.
     coarse = worker(recovery, case.id, "deliverability-check",
-                    {"client": "Tassel", "pooled_bounce_pct": 1.04, "safe_to_resume": True},
+                    {"client": "Northwind", "pooled_bounce_pct": 1.04, "safe_to_resume": True},
                     name="deliverability", scope={"max_leads": 500})
     recovery.tick(case.id)
 
@@ -404,7 +404,7 @@ def test_the_case_works_the_problem_after_the_facts_change(recovery, loop, clock
     # Same request, a sharper reading, superseding the coarse one. This is the natural shape:
     # a monitor re-runs the same check and disagrees with itself.
     worker(recovery, case.id, "deliverability-check",
-           {"client": "Tassel", "pooled_bounce_pct": 1.04,
+           {"client": "Northwind", "pooled_bounce_pct": 1.04,
             "worst_campaign_bounce_pct": 3.29, "safe_to_resume": False},
            name="deliverability", scope={"max_leads": 150, "warm_up_required": True},
            supersedes=coarse.id)
@@ -465,19 +465,19 @@ def test_the_case_works_the_problem_after_the_facts_change(recovery, loop, clock
 
 def test_the_history_explains_every_derived_step(recovery, loop, clock):
     """Six months later, "why did a segment analysis happen?" must be answerable from the row."""
-    case = recovery.open(action=ACTION, subject_key="tassel", context={"client": "Tassel"})
+    case = recovery.open(action=ACTION, subject_key="northwind", context={"client": "Northwind"})
     recovery.tick(case.id)
     worker(recovery, case.id, "campaign-performance",
-           {"client": "Tassel", "gone_quiet": True}, name="perf")
+           {"client": "Northwind", "gone_quiet": True}, name="perf")
     recovery.tick(case.id)
     coarse = worker(recovery, case.id, "deliverability-check",
-                    {"client": "Tassel", "safe_to_resume": True}, name="deliverability")
+                    {"client": "Northwind", "safe_to_resume": True}, name="deliverability")
     recovery.tick(case.id)
     human_approves(recovery, loop, case.id)
     recovery.tick(case.id)
     clock.advance(hours=2)
     worker(recovery, case.id, "deliverability-check",
-           {"client": "Tassel", "safe_to_resume": False, "worst_campaign_bounce_pct": 3.29},
+           {"client": "Northwind", "safe_to_resume": False, "worst_campaign_bounce_pct": 3.29},
            name="deliverability", supersedes=coarse.id)
     recovery.tick(case.id)
 

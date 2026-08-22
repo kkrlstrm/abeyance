@@ -19,7 +19,7 @@ its original plan turns out to be wrong.
     python3 examples/smoke_recovery.py show
 
 The honest framing of "the world changed": the database does not mutate. A **sharper second check
-disagrees with the coarse first one** — pooled bounce for Tassel is 1.04%, but its worst single
+disagrees with the coarse first one** — pooled bounce for Northwind is 1.04%, but its worst single
 campaign is 3.29%, and pooling hides that. A single bad campaign burns domain reputation
 regardless of the average, so the finer reading supersedes the coarser one. That is what
 supersession means in practice, and it is far more common than data actually changing under you.
@@ -547,7 +547,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("provision"); p.add_argument("--org", default="kai-karlstrom")
     p.set_defaults(fn=cmd_provision)
-    p = sub.add_parser("open"); p.add_argument("--client", default="Tassel")
+    p = sub.add_parser("open"); p.add_argument("--client", default="Northwind")
     p.set_defaults(fn=cmd_open)
     sub.add_parser("tick").set_defaults(fn=cmd_tick)
     sub.add_parser("recheck").set_defaults(fn=cmd_recheck)
