@@ -6,7 +6,7 @@ way the production shape works — a propose tick on a schedule, an apply tick h
 process alive in between. Run them minutes apart or days apart; the case does not care.
 
     python3 examples/smoke_fly_case.py provision              # create the worker apps, once
-    python3 examples/smoke_fly_case.py open --client Tassel    # open a case, dispatch evidence
+    python3 examples/smoke_fly_case.py open --client Northwind    # open a case, dispatch evidence
     python3 examples/smoke_fly_case.py tick                    # collect / derive / dispatch
     python3 examples/smoke_fly_case.py ask                     # email the approver
     python3 examples/smoke_fly_case.py apply                   # read the reply, harvest, tick
@@ -712,7 +712,7 @@ def main() -> None:
     p = sub.add_parser("provision"); p.add_argument("--org", default="personal")
     p.set_defaults(fn=cmd_provision)
 
-    p = sub.add_parser("open"); p.add_argument("--client", default="Tassel")
+    p = sub.add_parser("open"); p.add_argument("--client", default="Northwind")
     p.set_defaults(fn=cmd_open)
 
     sub.add_parser("tick").set_defaults(fn=cmd_tick)

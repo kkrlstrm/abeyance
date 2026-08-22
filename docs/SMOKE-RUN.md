@@ -7,6 +7,10 @@ hypothesis.
 Nothing here was mocked: ephemeral Fly machines, a live Postgres with ~54k rows of real campaign
 data, and a Gmail thread between two different mailboxes.
 
+> The client in this transcript is called **Northwind** — a stand-in. The run hit a real account;
+> the name is anonymized here and in the examples so the campaign figures below aren't attributable
+> to anyone. Everything else is verbatim.
+
 **Two bugs were found by running this that the 244-test suite did not catch.** Both are recorded
 below, because "the tests passed and it was still wrong" is the most useful thing a smoke run can
 tell you.
@@ -37,7 +41,7 @@ flaky-probe           busybox:1.36         app=abeyance-smoke-model  emits=evide
 process then exits in about two seconds; the containers outlive it.
 
 ```
-case tassel-1786959145-2680a9
+case northwind-1786959145-2680a9
   dispatched  : campaign-performance  ref=abeyance-smoke-data/7812450a650208   bison-evidence → postgres:16-alpine
   dispatched  : fit-score             ref=abeyance-smoke-model/286d2d6f1607e8  fit-scorer → python:3.12-slim
   authorized  : False  (2 request(s) not satisfied)
@@ -57,10 +61,10 @@ The interesting line is the third dispatch, which nobody planned:
   dispatched  : deliverability-check  ref=abeyance-smoke-data/891361a61d51e8
   authorized  : False  (no DECISION with standing for 'launch-campaign';
                         1 contribution(s) asserted authority without it)
-  IGNORED     : ['tassel-1786959145-2680a9::fit-score']
+  IGNORED     : ['northwind-1786959145-2680a9::fit-score']
 ```
 
-Tassel's last send was 2026-07-31 — 17 days before the run, past the 14-day threshold — so
+Northwind's last send was 2026-07-31 — 17 days before the run, past the 14-day threshold — so
 `gone_quiet` came back true and a deliverability check became warranted *and was dispatched on the
 same tick*. For a client that sent yesterday the rule never fires. The graph was not known when
 the case opened.
@@ -68,9 +72,9 @@ the case opened.
 **The three contributions**, each from a container that no longer exists:
 
 ```
-[evidence      ] worker:bison-evidence        Tassel: 13 campaigns, 14852 sent, 510 replies
+[evidence      ] worker:bison-evidence        Northwind: 13 campaigns, 14852 sent, 510 replies
                                              (3.43%), 154 bounced; last send 2026-07-31 (17 days ago)
-[recommendation] worker:fit-scorer            fit looks strong for Tassel — recommend launching
+[recommendation] worker:fit-scorer            fit looks strong for Northwind — recommend launching
 [evidence      ] worker:deliverability-check  deliverability: 1.04% bounce over 14852 sent,
                                              0 connected sender(s)
 ```
@@ -116,7 +120,7 @@ See [finding 3](#3-a-single-item-case-always-needs-the-judgment-step) below.
 status      : authorized
 satisfied   : human-decision
 authorized  : True  (authorized by ['human:karlstrom.kai@gmail.com'] on 4 contribution(s))
-IGNORED     : ['tassel-1786959145-2680a9::fit-score'] (asserted authority without standing)
+IGNORED     : ['northwind-1786959145-2680a9::fit-score'] (asserted authority without standing)
 ```
 
 The envelope that was executed under, re-derived and re-validated at commit time:
@@ -277,7 +281,7 @@ version, against the same real infrastructure.
 
 The database does not mutate. A **sharper second check disagrees with the coarse first one**:
 
-- Pooled all-time bounce for Tassel is **1.04%** — comfortably inside a 3% ceiling.
+- Pooled all-time bounce for Northwind is **1.04%** — comfortably inside a 3% ceiling.
 - Its worst single campaign is **3.29%** on 243 sends, and pooling hides that.
 
 A single campaign over the ceiling damages sender reputation whatever the average says, so the
@@ -442,7 +446,7 @@ reads `payload`:
 ```
 granted        : True
 reason         : authorized by ['policy:break-it-test'] on 3 contribution(s)
-claims refused : ['tassel-1786960595-9aefe2::rogue']
+claims refused : ['northwind-1786960595-9aefe2::rogue']
 scope          : {'max_leads': 250}
 ```
 
